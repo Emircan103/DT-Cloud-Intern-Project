@@ -1,0 +1,11 @@
+# Node & Derleme klasörleri
+node_modules/
+dist/
+build/
+
+# Gizli çevre değişkenleri
+.env
+
+# İşletim sistemi kalıntıları
+.DS_Store
+Thumbs.db
