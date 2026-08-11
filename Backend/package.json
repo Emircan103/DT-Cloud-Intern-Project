@@ -4,11 +4,9 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "db:start": "C:\\PROGRA~1\\PostgreSQL\\17\\bin\\pg_ctl.exe -D \"C:\\PROGRA~1\\PostgreSQL\\17\\data\" start || exit 0",
-    "predev": "npm run db:start",
-    "dev": "tsx watch src/index.ts",
-    "build": "tsc"
-  },
+  "dev": "tsx watch src/index.ts",
+  "build": "tsc"
+},
   "keywords": [],
   "author": "",
   "license": "ISC",
