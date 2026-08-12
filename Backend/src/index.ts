@@ -2,6 +2,8 @@ import express from 'express'; //Web sunucusu ve API oluşturmak için kütüpha
 import cors from 'cors'; // Frontend'in backende istek atabilmesini sağlayan kütüphane
 import dotenv from 'dotenv'; //.env dosyasındaki değişkenleri kullanabilmek için kütüphane
 import authRoutes from './routes/auth'; // Auth (kayıt/giriş) rotalarını içe aktarır
+import projectRoutes from './routes/projects'; // Proje rotalarını içe aktarır
+import boardRoutes from './routes/boards'; // Pano rotalarını içe aktarır
 
 dotenv.config(); // .env dosyasındaki değişkenleri process.env üzerinden kullanabilmek için
 
@@ -14,6 +16,11 @@ app.use(express.json()); // İsteklerden gelen JSON verisini okumamızı sağlar
 
 // Auth Rotaları
 app.use('/api/auth', authRoutes); // Kayıt ve giriş işlemlerini /api/auth altına bağlar
+
+//Project Rotaları
+app.use('/api/projects', projectRoutes); // Proje işlemlerini /api/projects altına bağlar
+
+app.use('/api', boardRoutes);
 
 // Test Endpoint'i (HTTP GET)
 app.get('/', (req, res) => {

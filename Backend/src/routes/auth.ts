@@ -1,10 +1,10 @@
-import { Router, Request, Response } from 'express';
-import bcrypt from 'bcryptjs';
-import jwt from 'jsonwebtoken';
-import prisma from '../lib/prisma';
+import { Router, Request, Response } from 'express';//Express.js, web uygulamaları ve API'ler oluşturmak için kullanılan bir Node.js framework'üdür.
+import bcrypt from 'bcryptjs';//bcryptjs, şifreleri güvenli bir şekilde hashlemek ve doğrulamak için kullanılan bir kütüphanedir.
+import jwt from 'jsonwebtoken';//jsonwebtoken, JSON Web Token (JWT) oluşturmak ve doğrulamak için kullanılan bir kütüphanedir.
+import prisma from '../lib/prisma';//prisma, veritabanı işlemleri için kullanılan Prisma Client örneğini içe aktarır.
 
 const router = Router();
-const JWT_SECRET = process.env.JWT_SECRET || 'gizli_anahtarınız';
+const JWT_SECRET = process.env.JWT_SECRET || 'DEFAULT_JWT_PASSWORD';
 
 // 1. Kayıt Ol (Register)
 router.post('/register', async (req: Request, res: Response) => {
@@ -20,7 +20,7 @@ router.post('/register', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Bu email adresi zaten kullanımda.' });
     }
 
-    const hashedPassword = await bcrypt.hash(password, 10);
+    const hashedPassword = await bcrypt.hash(password, 10);//Şifreyi güvenli bir şekilde hashler.
 
     const user = await prisma.user.create({
       data: {
