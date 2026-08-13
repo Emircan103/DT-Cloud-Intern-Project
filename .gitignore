@@ -1,11 +1,21 @@
-# Node & Derleme klasörleri
+# Bağımlılıklar ve derleme klasörleri
 node_modules/
 dist/
+dist-ssr/
 build/
 
 # Gizli çevre değişkenleri
 .env
+.env.*
+!.env.example
 
-# İşletim sistemi kalıntıları
+# Loglar ve geçici dosyalar
+logfile
+*.log
+npm-debug.log*
+
+# Editör ve işletim sistemi kalıntıları
 .DS_Store
 Thumbs.db
+.vscode/
+.idea/
