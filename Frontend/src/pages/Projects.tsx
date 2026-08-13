@@ -1,5 +1,15 @@
 import { useState, useEffect } from 'react';
-import { Box, Button, Input, VStack, Heading, Text, Flex,HStack } from '@chakra-ui/react';
+import { 
+  Box, 
+  Button, 
+  Input, 
+  VStack, 
+  Heading, 
+  Text, 
+  Flex,
+  HStack
+} from '@chakra-ui/react';
+import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { api } from '../lib/axios';
 import { useAuth } from '../context/AuthContext';
@@ -21,6 +31,7 @@ export const Projects = () => {
   const [editDescription, setEditDescription] = useState('');
 
   const { logout } = useAuth();
+  const navigate = useNavigate();
 
   const fetchProjects = async () => {
     try {
@@ -164,7 +175,7 @@ export const Projects = () => {
           projects.map((project) => (
             <Box key={project.id} p={4} borderWidth={1} borderRadius="md">
               {editingId === project.id ? (
-                /* Düzenleme Modu Formu */
+                /* Düzenleme Modu */
                 <VStack spaceY={3} align="stretch">
                   <Input
                     value={editName}
@@ -209,6 +220,15 @@ export const Projects = () => {
                   </Box>
 
                   <HStack>
+                    <Button 
+                      colorPalette="purple" 
+                      variant="solid"
+                      size="sm" 
+                      onClick={() => navigate(`/projects/${project.id}`)}
+                    >
+                      Panoya Git
+                    </Button>
+
                     <Button 
                       colorPalette="yellow" 
                       variant="solid"

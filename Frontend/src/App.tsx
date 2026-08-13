@@ -3,9 +3,9 @@ import type { ReactNode } from 'react';
 import { Login } from './pages/Login';
 import { Register } from './pages/Register';
 import { Projects } from './pages/Projects';
+import { Board } from './pages/Board';
 import { useAuth } from './context/AuthContext';
 
-// Oturum açılmamışsa Login sayfasına yönlendiren korumalı rota
 const PrivateRoute = ({ children }: { children: ReactNode }) => {
   const { token } = useAuth();
   return token ? children : <Navigate to="/login" />;
@@ -28,7 +28,16 @@ function App() {
         path="/projects"
         element={
           <PrivateRoute>
-              <Projects />
+            <Projects />
+          </PrivateRoute>
+        }
+      />
+
+      <Route
+        path="/projects/:id"
+        element={
+          <PrivateRoute>
+            <Board />
           </PrivateRoute>
         }
       />
