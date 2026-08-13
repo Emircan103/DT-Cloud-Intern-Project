@@ -1,12 +1,5 @@
 import { useState } from 'react';
-import { 
-  Box, 
-  Button, 
-  Input, 
-  VStack, 
-  Heading, 
-  Text 
-} from '@chakra-ui/react';
+import { Box, Button, Input, VStack, Heading, Text } from '@chakra-ui/react';
 import { useNavigate, Link } from 'react-router-dom';
 import axios from 'axios';
 import { api } from '../lib/axios';
@@ -72,7 +65,8 @@ export const Register = () => {
 
         <Button 
           type="submit" 
-          colorScheme="green" 
+          colorPalette="green" 
+          variant="solid" 
           width="full"
         >
           Kayıt Ol

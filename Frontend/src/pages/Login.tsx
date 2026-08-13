@@ -68,7 +68,8 @@ export const Login = () => {
 
         <Button 
           type="submit" 
-          colorScheme="blue" 
+          colorPalette="blue" 
+          variant="solid" 
           width="full"
         >
           Giriş Yap
