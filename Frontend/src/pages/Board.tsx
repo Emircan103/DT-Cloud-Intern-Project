@@ -1,164 +1,218 @@
-import { useState, useEffect, useCallback } from 'react';
-import { 
-  Box, 
-  Button, 
-  Input, 
-  Heading, 
-  Text, 
+import React, { useState, useEffect, useCallback } from 'react';
+import {
+  Box,
+  Button,
+  Input,
+  Heading,
+  Text,
   Flex,
   HStack,
-  VStack
+  VStack,
 } from '@chakra-ui/react';
 import { useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
+import {
+  DndContext,
+  closestCorners,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core';
+import {
+  SortableContext,
+  sortableKeyboardCoordinates,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
 import { api } from '../lib/axios';
+import { TaskCard, type TaskItem } from '../components/TaskCard';
 
-interface BoardItem {
+interface ColumnItem {
   id: string;
   name: string;
-  projectId: string;
-}
-
-interface Project {
-  id: string;
-  name: string;
-  description?: string;
-  boards?: BoardItem[];
+  order: number;
+  tasks: TaskItem[];
 }
 
 export const Board = () => {
-  const { id } = useParams<{ id: string }>();
+  const { id } = useParams<{ id: string }>(); // Board ID
   const navigate = useNavigate();
 
-  const [project, setProject] = useState<Project | null>(null);
-  const [boardName, setBoardName] = useState('');
+  const [columns, setColumns] = useState<ColumnItem[]>([]);
+  const [search, setSearch] = useState('');
   const [error, setError] = useState('');
+  
+  // Yeni görev ekleme için form state'i
+  const [activeColumnId, setActiveColumnId] = useState<string | null>(null);
+  const [taskTitle, setTaskTitle] = useState('');
+  const [taskDescription, setTaskDescription] = useState('');
 
-  // Pano Güncelleme (Edit) Durumları
-  const [editingBoardId, setEditingBoardId] = useState<string | null>(null);
-  const [editBoardName, setEditBoardName] = useState('');
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 5,
+      },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
 
-  const fetchProjectData = useCallback(async () => {
+  // Manuel tetiklemeler (ekleme/silme sonrası) için
+  const refreshData = useCallback(async () => {
     if (!id) return;
-
     try {
-      const res = await api.get(`/projects/${id}`);
-      setProject(res.data);
+      const res = await api.get(`/boards/${id}/columns`, {
+        params: { search: search || undefined },
+      });
+      setColumns(res.data);
     } catch (err: unknown) {
       if (axios.isAxiosError(err)) {
-        setError(err.response?.data?.error || 'Proje verisi yüklenemedi.');
+        setError(err.response?.data?.error || 'Kolonlar ve görevler yüklenemedi.');
       }
     }
-  }, [id]);
+  }, [id, search]);
 
   useEffect(() => {
-    let isMounted = true;
+    let ignore = false;
 
-    const loadData = async () => {
+    const loadColumns = async () => {
       if (!id) return;
-
       try {
-        const res = await api.get(`/projects/${id}`);
-        if (isMounted) {
-          setProject(res.data);
+        const res = await api.get(`/boards/${id}/columns`, {
+          params: { search: search || undefined },
+        });
+        if (!ignore) {
+          setColumns(res.data);
         }
       } catch (err: unknown) {
-        if (isMounted && axios.isAxiosError(err)) {
-          setError(err.response?.data?.error || 'Proje verisi yüklenemedi.');
+        if (!ignore && axios.isAxiosError(err)) {
+          setError(err.response?.data?.error || 'Kolonlar ve görevler yüklenemedi.');
         }
       }
     };
 
-    loadData();
+    loadColumns();
 
     return () => {
-      isMounted = false;
+      ignore = true;
     };
-  }, [id]);
+  }, [id, search]);
 
-  const handleCreateBoard = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!id || !boardName.trim()) return;
-
-    setError('');
+  // Yeni görev oluşturma
+  const handleCreateTask = async (columnId: string) => {
+    if (!taskTitle.trim()) return;
 
     try {
-      await api.post('/boards', { 
-        name: boardName,
-        projectId: id 
+      await api.post(`/columns/${columnId}/tasks`, {
+        title: taskTitle,
+        description: taskDescription,
       });
 
-      setBoardName('');
-      await fetchProjectData();
+      setTaskTitle('');
+      setTaskDescription('');
+      setActiveColumnId(null);
+      await refreshData();
     } catch (err: unknown) {
       if (axios.isAxiosError(err)) {
-        setError(err.response?.data?.error || 'Pano oluşturulamadı.');
+        setError(err.response?.data?.error || 'Görev oluşturulamadı.');
       }
     }
   };
 
-  const startEditingBoard = (board: BoardItem) => {
-    setEditingBoardId(board.id);
-    setEditBoardName(board.name);
-  };
-
-  const cancelEditingBoard = () => {
-    setEditingBoardId(null);
-    setEditBoardName('');
-  };
-
-  const handleUpdateBoard = async (boardId: string) => {
-    if (!editBoardName.trim()) return;
-    setError('');
-
+  // Görev silme
+  const handleDeleteTask = async (taskId: string) => {
     try {
-      await api.put(`/boards/${boardId}`, {
-        name: editBoardName
-      });
-
-      setEditingBoardId(null);
-      await fetchProjectData();
+      await api.delete(`/tasks/${taskId}`);
+      await refreshData();
     } catch (err: unknown) {
       if (axios.isAxiosError(err)) {
-        setError(err.response?.data?.error || 'Pano güncellenemedi.');
+        setError(err.response?.data?.error || 'Görev silinemedi.');
       }
     }
   };
 
-  const handleDeleteBoard = async (boardId: string) => {
-    try {
-      await api.delete(`/boards/${boardId}`);
-      await fetchProjectData();
-    } catch (err: unknown) {
-      if (axios.isAxiosError(err)) {
-        setError(err.response?.data?.error || 'Pano silinemedi.');
+  // Sürükle ve Bırak Olayı (Drag End)
+  const handleDragEnd = async (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over) return;
+
+    const activeTaskId = String(active.id);
+    const overId = String(over.id);
+
+    let sourceColumn: ColumnItem | undefined;
+    let draggedTask: TaskItem | undefined;
+
+    for (const col of columns) {
+      const task = col.tasks.find((t) => t.id === activeTaskId);
+      if (task) {
+        sourceColumn = col;
+        draggedTask = task;
+        break;
       }
+    }
+
+    if (!draggedTask || !sourceColumn) return;
+
+    let destinationColumn = columns.find((c) => c.id === overId);
+    if (!destinationColumn) {
+      destinationColumn = columns.find((c) =>
+        c.tasks.some((t) => t.id === overId)
+      );
+    }
+
+    if (!destinationColumn) return;
+
+    // Optimistic UI güncellemesi
+    const updatedColumns = columns.map((col) => {
+      if (col.id === sourceColumn?.id && col.id === destinationColumn?.id) {
+        return col;
+      }
+      if (col.id === sourceColumn?.id) {
+        return { ...col, tasks: col.tasks.filter((t) => t.id !== activeTaskId) };
+      }
+      if (col.id === destinationColumn?.id) {
+        return {
+          ...col,
+          tasks: [...col.tasks, { ...draggedTask!, columnId: destinationColumn.id }],
+        };
+      }
+      return col;
+    });
+
+    setColumns(updatedColumns);
+
+    try {
+      await api.put(`/tasks/${activeTaskId}/move`, {
+        destinationColumnId: destinationColumn.id,
+        newOrder: destinationColumn.tasks.length,
+      });
+    } catch (err: unknown) {
+      console.error('Taşıma hatası:', err);
+      await refreshData();
     }
   };
 
   return (
-    <Box maxW="5xl" mx="auto" mt={8} p={4}>
-      <Flex justifyContent="space-between" alignItems="center" mb={6}>
-        <Box>
-          <Button 
-            size="sm" 
-            variant="outline" 
-            mb={2} 
-            onClick={() => navigate('/projects')}
-          >
+    <Box maxW="7xl" mx="auto" mt={6} p={4}>
+      {/* Üst Başlık & Arama Çubuğu */}
+      <Flex justifyContent="space-between" alignItems="center" mb={6} flexWrap="wrap" gap={4}>
+        <HStack>
+          <Button size="sm" variant="outline" onClick={() => navigate('/projects')}>
             ← Projelere Dön
           </Button>
+          <Heading size="lg">Kanban Panosu</Heading>
+        </HStack>
 
-          <Heading size="xl">
-            {project?.name || 'Proje Panosu'}
-          </Heading>
-
-          {project?.description && (
-            <Text color="gray.600" mt={1}>
-              {project.description}
-            </Text>
-          )}
-        </Box>
+        <HStack maxW="350px" width="full">
+          <Input
+            placeholder="Görevlerde ara..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            size="sm"
+          />
+        </HStack>
       </Flex>
 
       {error && (
@@ -167,101 +221,101 @@ export const Board = () => {
         </Box>
       )}
 
-      {/* Pano Ekleme Formu */}
-      <Box p={4} borderWidth={1} borderRadius="lg" mb={8}>
-        <Heading size="md" mb={4}>
-          Yeni Pano / Kolon Ekle
-        </Heading>
-
-        <HStack as="form" onSubmit={handleCreateBoard}>
-          <Input
-            placeholder="Pano Adı (örn: Yapılacaklar, Tamamlananlar)"
-            value={boardName}
-            onChange={(e) => setBoardName(e.target.value)}
-            required
-          />
-
-          <Button type="submit" colorPalette="blue" variant="solid">
-            Ekle
-          </Button>
-        </HStack>
-      </Box>
-
-      {/* Panolar Listesi */}
-      <Heading size="md" mb={4}>
-        Panolar
-      </Heading>
-
-      <Flex gap={4} overflowX="auto" pb={4}>
-        {!project?.boards || project.boards.length === 0 ? (
-          <Text color="gray.500">Henüz pano eklenmemiş.</Text>
-        ) : (
-          project.boards.map((board) => (
-            <Box 
-              key={board.id} 
-              minW="300px" 
-              p={4} 
-              borderWidth={1} 
-              borderRadius="lg" 
-              bg="gray.50"
+      {/* Sürükle Bırak Alanı */}
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCorners}
+        onDragEnd={handleDragEnd}
+      >
+        <Flex gap={6} overflowX="auto" pb={6} align="flex-start">
+          {columns.map((column) => (
+            <Box
+              key={column.id}
+              minW="320px"
+              maxW="320px"
+              bg="gray.100"
+              p={4}
+              borderRadius="lg"
+              boxShadow="sm"
             >
-              {editingBoardId === board.id ? (
-                /* Düzenleme Modu */
-                <VStack spaceY={2} align="stretch">
+              {/* Kolon Başlığı */}
+              <Flex justifyContent="space-between" alignItems="center" mb={4}>
+                <Heading size="sm" color="gray.700">
+                  {column.name} ({column.tasks.length})
+                </Heading>
+              </Flex>
+
+              {/* Kolondaki Görevler */}
+              <SortableContext
+                items={column.tasks.map((t) => t.id)}
+                strategy={verticalListSortingStrategy}
+              >
+                <Box minH="50px">
+                  {column.tasks.map((task) => (
+                    <TaskCard
+                      key={task.id}
+                      task={task}
+                      onDelete={handleDeleteTask}
+                    />
+                  ))}
+                </Box>
+              </SortableContext>
+
+              {/* Yeni Görev Ekleme Alanı */}
+              {activeColumnId === column.id ? (
+                <VStack spaceY={2} mt={3} align="stretch">
                   <Input
-                    value={editBoardName}
-                    onChange={(e) => setEditBoardName(e.target.value)}
+                    placeholder="Görev Başlığı"
                     size="sm"
                     bg="white"
+                    value={taskTitle}
+                    onChange={(e) => setTaskTitle(e.target.value)}
+                    autoFocus
                   />
-
+                  <Input
+                    placeholder="Açıklama (İsteğe bağlı)"
+                    size="sm"
+                    bg="white"
+                    value={taskDescription}
+                    onChange={(e) => setTaskDescription(e.target.value)}
+                  />
                   <HStack justifyContent="flex-end">
-                    <Button size="xs" variant="outline" onClick={cancelEditingBoard}>
+                    <Button
+                      size="xs"
+                      variant="outline"
+                      onClick={() => setActiveColumnId(null)}
+                    >
                       İptal
                     </Button>
-
-                    <Button 
-                      size="xs" 
-                      colorPalette="green" 
-                      variant="solid" 
-                      onClick={() => handleUpdateBoard(board.id)}
+                    <Button
+                      size="xs"
+                      colorPalette="blue"
+                      variant="solid"
+                      onClick={() => handleCreateTask(column.id)}
                     >
-                      Kaydet
+                      Ekle
                     </Button>
                   </HStack>
                 </VStack>
               ) : (
-                /* Normal Görünüm */
-                <Flex justifyContent="space-between" alignItems="center">
-                  <Heading size="sm">
-                    {board.name}
-                  </Heading>
-
-                  <HStack spaceX={1}>
-                    <Button 
-                      size="xs" 
-                      colorPalette="yellow" 
-                      variant="solid" 
-                      onClick={() => startEditingBoard(board)}
-                    >
-                      Düzenle
-                    </Button>
-
-                    <Button 
-                      size="xs" 
-                      colorPalette="red" 
-                      variant="solid" 
-                      onClick={() => handleDeleteBoard(board.id)}
-                    >
-                      Sil
-                    </Button>
-                  </HStack>
-                </Flex>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  width="full"
+                  mt={2}
+                  onClick={() => {
+                    setActiveColumnId(column.id);
+                    setTaskTitle('');
+                    setTaskDescription('');
+                  }}
+                >
+                  + Yeni Görev Ekle
+                </Button>
               )}
             </Box>
-          ))
-        )}
-      </Flex>
+          ))}
+        </Flex>
+      </DndContext>
     </Box>
   );
 };
