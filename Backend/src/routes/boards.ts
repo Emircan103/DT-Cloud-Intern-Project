@@ -133,4 +133,18 @@ router.delete('/:id', async (req: AuthRequest, res) => {
   res.json({ message: 'Pano silindi.' });
 });
 
+
+
+
+// GET /api/auth/users - Görev atamaları için kullanıcıları listele
+router.get('/users', authenticateToken, async (_req, res) => {
+  const users = await prisma.user.findMany({
+    select: {
+      id: true,
+      email: true,
+    },
+  });
+  res.json(users);
+});
+
 export default router;

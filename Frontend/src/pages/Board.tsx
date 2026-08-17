@@ -26,7 +26,7 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 import { api } from '../lib/axios';
-import { TaskCard, type TaskItem } from '../components/TaskCard';
+import { TaskCard, type TaskItem, type TaskUser } from '../components/TaskCard';
 
 interface ColumnItem {
   id: string;
@@ -40,13 +40,16 @@ export const Board = () => {
   const navigate = useNavigate();
 
   const [columns, setColumns] = useState<ColumnItem[]>([]);
+  const [users, setUsers] = useState<TaskUser[]>([]);
   const [search, setSearch] = useState('');
+  const [selectedAssignee, setSelectedAssignee] = useState('');
   const [error, setError] = useState('');
-  
-  // Yeni görev ekleme için form state'i
+
+  // Yeni görev ekleme form state'i
   const [activeColumnId, setActiveColumnId] = useState<string | null>(null);
   const [taskTitle, setTaskTitle] = useState('');
   const [taskDescription, setTaskDescription] = useState('');
+  const [taskAssigneeId, setTaskAssigneeId] = useState('');
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -59,12 +62,27 @@ export const Board = () => {
     })
   );
 
-  // Manuel tetiklemeler (ekleme/silme sonrası) için
+  // Kullanıcıları getir
+  useEffect(() => {
+    const fetchUsers = async () => {
+      try {
+        const res = await api.get('/auth/users');
+        setUsers(res.data);
+      } catch (err) {
+        console.error('Kullanıcılar yüklenemedi:', err);
+      }
+    };
+    fetchUsers();
+  }, []);
+
   const refreshData = useCallback(async () => {
     if (!id) return;
     try {
       const res = await api.get(`/boards/${id}/columns`, {
-        params: { search: search || undefined },
+        params: {
+          search: search || undefined,
+          assigneeId: selectedAssignee || undefined,
+        },
       });
       setColumns(res.data);
     } catch (err: unknown) {
@@ -72,7 +90,7 @@ export const Board = () => {
         setError(err.response?.data?.error || 'Kolonlar ve görevler yüklenemedi.');
       }
     }
-  }, [id, search]);
+  }, [id, search, selectedAssignee]);
 
   useEffect(() => {
     let ignore = false;
@@ -81,7 +99,10 @@ export const Board = () => {
       if (!id) return;
       try {
         const res = await api.get(`/boards/${id}/columns`, {
-          params: { search: search || undefined },
+          params: {
+            search: search || undefined,
+            assigneeId: selectedAssignee || undefined,
+          },
         });
         if (!ignore) {
           setColumns(res.data);
@@ -98,7 +119,7 @@ export const Board = () => {
     return () => {
       ignore = true;
     };
-  }, [id, search]);
+  }, [id, search, selectedAssignee]);
 
   // Yeni görev oluşturma
   const handleCreateTask = async (columnId: string) => {
@@ -108,15 +129,32 @@ export const Board = () => {
       await api.post(`/columns/${columnId}/tasks`, {
         title: taskTitle,
         description: taskDescription,
+        assigneeId: taskAssigneeId || undefined,
       });
 
       setTaskTitle('');
       setTaskDescription('');
+      setTaskAssigneeId('');
       setActiveColumnId(null);
       await refreshData();
     } catch (err: unknown) {
       if (axios.isAxiosError(err)) {
         setError(err.response?.data?.error || 'Görev oluşturulamadı.');
+      }
+    }
+  };
+
+  // Görev güncelleme
+  const handleUpdateTask = async (
+    taskId: string,
+    updatedData: { title: string; description?: string; assigneeId?: string | null }
+  ) => {
+    try {
+      await api.put(`/tasks/${taskId}`, updatedData);
+      await refreshData();
+    } catch (err: unknown) {
+      if (axios.isAxiosError(err)) {
+        setError(err.response?.data?.error || 'Görev güncellenemedi.');
       }
     }
   };
@@ -133,7 +171,7 @@ export const Board = () => {
     }
   };
 
-  // Sürükle ve Bırak Olayı (Drag End)
+  // Sürükle ve Bırak Olayı
   const handleDragEnd = async (event: DragEndEvent) => {
     const { active, over } = event;
     if (!over) return;
@@ -196,22 +234,42 @@ export const Board = () => {
 
   return (
     <Box maxW="7xl" mx="auto" mt={6} p={4}>
-      {/* Üst Başlık & Arama Çubuğu */}
+      {/* Üst Başlık & Arama / Filtreleme Çubuğu */}
       <Flex justifyContent="space-between" alignItems="center" mb={6} flexWrap="wrap" gap={4}>
         <HStack>
-          <Button size="sm" variant="outline" onClick={() => navigate('/projects')}>
-            ← Projelere Dön
+          <Button size="sm" variant="outline" onClick={() => navigate(-1)}>
+            ← Geri Dön
           </Button>
           <Heading size="lg">Kanban Panosu</Heading>
         </HStack>
 
-        <HStack maxW="350px" width="full">
+        <HStack spaceX={3}>
           <Input
             placeholder="Görevlerde ara..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             size="sm"
+            maxW="200px"
           />
+
+          <select
+            value={selectedAssignee}
+            onChange={(e) => setSelectedAssignee(e.target.value)}
+            style={{
+              padding: '6px 10px',
+              fontSize: '14px',
+              borderRadius: '6px',
+              border: '1px solid #E2E8F0',
+              background: 'white',
+            }}
+          >
+            <option value="">Tüm Kişiler</option>
+            {users.map((u) => (
+              <option key={u.id} value={u.id}>
+                {u.email}
+              </option>
+            ))}
+          </select>
         </HStack>
       </Flex>
 
@@ -221,7 +279,7 @@ export const Board = () => {
         </Box>
       )}
 
-      {/* Sürükle Bırak Alanı */}
+      {/* Sürükle Bırak Kanban Alanı */}
       <DndContext
         sensors={sensors}
         collisionDetection={closestCorners}
@@ -255,7 +313,9 @@ export const Board = () => {
                     <TaskCard
                       key={task.id}
                       task={task}
+                      users={users}
                       onDelete={handleDeleteTask}
+                      onUpdate={handleUpdateTask}
                     />
                   ))}
                 </Box>
@@ -279,6 +339,25 @@ export const Board = () => {
                     value={taskDescription}
                     onChange={(e) => setTaskDescription(e.target.value)}
                   />
+                  <select
+                    value={taskAssigneeId}
+                    onChange={(e) => setTaskAssigneeId(e.target.value)}
+                    style={{
+                      padding: '6px',
+                      fontSize: '12px',
+                      borderRadius: '4px',
+                      border: '1px solid #E2E8F0',
+                      background: 'white',
+                    }}
+                  >
+                    <option value="">Atanan Kişi Seç (İsteğe bağlı)</option>
+                    {users.map((u) => (
+                      <option key={u.id} value={u.id}>
+                        {u.email}
+                      </option>
+                    ))}
+                  </select>
+
                   <HStack justifyContent="flex-end">
                     <Button
                       size="xs"
@@ -307,6 +386,7 @@ export const Board = () => {
                     setActiveColumnId(column.id);
                     setTaskTitle('');
                     setTaskDescription('');
+                    setTaskAssigneeId('');
                   }}
                 >
                   + Yeni Görev Ekle

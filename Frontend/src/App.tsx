@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { Login } from './pages/Login';
 import { Register } from './pages/Register';
 import { Projects } from './pages/Projects';
+import { ProjectDetail } from './pages/ProjectDetail';
 import { Board } from './pages/Board';
 import { useAuth } from './context/AuthContext';
 
@@ -14,15 +15,8 @@ const PrivateRoute = ({ children }: { children: ReactNode }) => {
 function App() {
   return (
     <Routes>
-      <Route 
-        path="/login" 
-        element={<Login />} 
-      />
-
-      <Route 
-        path="/register" 
-        element={<Register />} 
-      />
+      <Route path="/login" element={<Login />} />
+      <Route path="/register" element={<Register />} />
 
       <Route
         path="/projects"
@@ -33,8 +27,19 @@ function App() {
         }
       />
 
+      {/* Proje içindeki Panoları yönetme sayfası */}
       <Route
         path="/projects/:id"
+        element={
+          <PrivateRoute>
+            <ProjectDetail />
+          </PrivateRoute>
+        }
+      />
+
+      {/* Seçilen Panonun Kanban Tahtası */}
+      <Route
+        path="/boards/:id"
         element={
           <PrivateRoute>
             <Board />
@@ -42,10 +47,7 @@ function App() {
         }
       />
 
-      <Route 
-        path="*" 
-        element={<Navigate to="/login" />} 
-      />
+      <Route path="*" element={<Navigate to="/login" />} />
     </Routes>
   );
 }
