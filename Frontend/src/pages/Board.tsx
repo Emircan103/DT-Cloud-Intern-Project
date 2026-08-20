@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Box, Button, Input, Heading, Text, Flex, HStack } from '@chakra-ui/react';
 import { useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
@@ -151,49 +151,70 @@ export const Board = () => {
     const activeTaskId = String(active.id);
     const overId = String(over.id);
 
-    let sourceColumn: ColumnItem | undefined;
+    if (activeTaskId === overId) return;
+
+    let sourceCol: ColumnItem | undefined;
     let draggedTask: TaskItem | undefined;
 
     for (const col of columns) {
-      const task = col.tasks.find((t) => t.id === activeTaskId);
-      if (task) {
-        sourceColumn = col;
-        draggedTask = task;
+      const found = col.tasks.find((t) => t.id === activeTaskId);
+      if (found) {
+        sourceCol = col;
+        draggedTask = { ...found };
         break;
       }
     }
 
-    if (!draggedTask || !sourceColumn) return;
+    if (!draggedTask || !sourceCol) return;
 
-    // Hedef kolonu bul: Kolonun kendisine mi bırakıldı yoksa içindeki başka bir karta mı?
-    let destinationColumn = columns.find((c) => c.id === overId);
-    if (!destinationColumn) {
-      destinationColumn = columns.find((c) =>
-        c.tasks.some((t) => t.id === overId)
-      );
+    let destCol = columns.find((c) => c.id === overId);
+    let targetIndex = -1;
+
+    if (destCol) {
+      targetIndex = destCol.tasks.length;
+    } else {
+      destCol = columns.find((c) => c.tasks.some((t) => t.id === overId));
+      if (destCol) {
+        targetIndex = destCol.tasks.findIndex((t) => t.id === overId);
+      }
     }
 
-    if (!destinationColumn) return;
+    if (!destCol) return;
+    if (targetIndex < 0) targetIndex = 0;
 
-    // Aynı pozisyona geri bırakıldıysa işlem yapma
-    if (sourceColumn.id === destinationColumn.id && activeTaskId === overId) {
-      return;
-    }
+    const isSameColumn = sourceCol.id === destCol.id;
+    const currentIndex = sourceCol.tasks.findIndex((t) => t.id === activeTaskId);
+    if (isSameColumn && currentIndex === targetIndex) return;
 
-    // Optimistic UI Güncellemesi
     const updatedColumns = columns.map((col) => {
-      if (col.id === sourceColumn?.id && col.id === destinationColumn?.id) {
-        return col;
-      }
-      if (col.id === sourceColumn?.id) {
-        return { ...col, tasks: col.tasks.filter((t) => t.id !== activeTaskId) };
-      }
-      if (col.id === destinationColumn?.id) {
+      if (isSameColumn && col.id === sourceCol?.id) {
+        const list = [...col.tasks];
+        const [moved] = list.splice(currentIndex, 1);
+        list.splice(targetIndex, 0, moved);
         return {
           ...col,
-          tasks: [...col.tasks, { ...draggedTask!, columnId: destinationColumn.id }],
+          tasks: list.map((t, idx) => ({ ...t, order: idx })),
         };
       }
+
+      if (col.id === sourceCol?.id) {
+        const list = col.tasks.filter((t) => t.id !== activeTaskId);
+        return {
+          ...col,
+          tasks: list.map((t, idx) => ({ ...t, order: idx })),
+        };
+      }
+
+      if (col.id === destCol?.id) {
+        const list = [...col.tasks];
+        draggedTask!.columnId = destCol.id;
+        list.splice(targetIndex, 0, draggedTask!);
+        return {
+          ...col,
+          tasks: list.map((t, idx) => ({ ...t, order: idx })),
+        };
+      }
+
       return col;
     });
 
@@ -201,8 +222,8 @@ export const Board = () => {
 
     try {
       await api.put(`/tasks/${activeTaskId}/move`, {
-        destinationColumnId: destinationColumn.id,
-        newOrder: destinationColumn.tasks.length,
+        destinationColumnId: destCol.id,
+        newOrder: targetIndex,
       });
     } catch (err: unknown) {
       console.error('Taşıma hatası:', err);
@@ -220,7 +241,7 @@ export const Board = () => {
           <Heading size="lg">Kanban Panosu</Heading>
         </HStack>
 
-        <HStack spaceX={3}>
+        <HStack gap={3}>
           <Input
             placeholder="Görevlerde ara..."
             value={search}
