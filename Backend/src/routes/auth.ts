@@ -1,13 +1,14 @@
-import { Router, Request, Response } from 'express';//Express.js, web uygulamaları ve API'ler oluşturmak için kullanılan bir Node.js framework'üdür.
-import bcrypt from 'bcryptjs';//bcryptjs, şifreleri güvenli bir şekilde hashlemek ve doğrulamak için kullanılan bir kütüphanedir.
-import jwt from 'jsonwebtoken';//jsonwebtoken, JSON Web Token (JWT) oluşturmak ve doğrulamak için kullanılan bir kütüphanedir.
-import prisma from '../lib/prisma';//prisma, veritabanı işlemleri için kullanılan Prisma Client örneğini içe aktarır.
+import { Router } from 'express';
+import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
+import { prisma } from '../lib/prisma';
+import { authenticateToken, AuthRequest } from '../middleware/auth';
 
 const router = Router();
-const JWT_SECRET = process.env.JWT_SECRET || 'DEFAULT_JWT_PASSWORD';
+const JWT_SECRET = process.env.JWT_SECRET || 'gizli-anahtar-super-secret';
 
-// 1. Kayıt Ol (Register)
-router.post('/register', async (req: Request, res: Response) => {
+// POST /api/auth/register
+router.post('/register', async (req, res) => {
   try {
     const { email, password } = req.body;
 
@@ -15,12 +16,15 @@ router.post('/register', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Email ve şifre zorunludur.' });
     }
 
-    const existingUser = await prisma.user.findUnique({ where: { email } });
+    const existingUser = await prisma.user.findUnique({
+      where: { email },
+    });
+
     if (existingUser) {
       return res.status(400).json({ error: 'Bu email adresi zaten kullanımda.' });
     }
 
-    const hashedPassword = await bcrypt.hash(password, 10);//Şifreyi güvenli bir şekilde hashler.
+    const hashedPassword = await bcrypt.hash(password, 10);
 
     const user = await prisma.user.create({
       data: {
@@ -29,18 +33,21 @@ router.post('/register', async (req: Request, res: Response) => {
       },
     });
 
-    return res.status(201).json({
+    const token = jwt.sign({ userId: user.id }, JWT_SECRET, { expiresIn: '7d' });
+
+    res.status(201).json({
       message: 'Kullanıcı başarıyla oluşturuldu.',
       user: { id: user.id, email: user.email },
+      token,
     });
   } catch (error) {
-    console.error('Kayıt Hatası Detayı:', error); // Real error log
-    return res.status(500).json({ error: 'Sunucu hatası oluştu.' });
+    console.error('Kayıt hatası:', error);
+    res.status(500).json({ error: 'Kayıt olurken bir hata oluştu.' });
   }
 });
 
-// 2. Giriş Yap (Login)
-router.post('/login', async (req: Request, res: Response) => {
+// POST /api/auth/login
+router.post('/login', async (req, res) => {
   try {
     const { email, password } = req.body;
 
@@ -48,27 +55,46 @@ router.post('/login', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Email ve şifre zorunludur.' });
     }
 
-    const user = await prisma.user.findUnique({ where: { email } });
+    const user = await prisma.user.findUnique({
+      where: { email },
+    });
+
     if (!user) {
       return res.status(400).json({ error: 'Geçersiz email veya şifre.' });
     }
 
-    const isPasswordValid = await bcrypt.compare(password, user.password);
-    if (!isPasswordValid) {
+    const isValidPassword = await bcrypt.compare(password, user.password);
+
+    if (!isValidPassword) {
       return res.status(400).json({ error: 'Geçersiz email veya şifre.' });
     }
 
-    const token = jwt.sign({ userId: user.id, email: user.email }, JWT_SECRET, {
-      expiresIn: '7d',
-    });
+    const token = jwt.sign({ userId: user.id }, JWT_SECRET, { expiresIn: '7d' });
 
-    return res.json({
+    res.json({
       message: 'Giriş başarılı.',
-      token,
       user: { id: user.id, email: user.email },
+      token,
     });
   } catch (error) {
-    return res.status(500).json({ error: 'Sunucu hatası oluştu.' });
+    console.error('Giriş hatası:', error);
+    res.status(500).json({ error: 'Giriş yapılırken bir hata oluştu.' });
+  }
+});
+
+// GET /api/auth/users - Tüm kullanıcıları listele (Atama dropdown'ı için)
+router.get('/users', authenticateToken, async (_req: AuthRequest, res) => {
+  try {
+    const users = await prisma.user.findMany({
+      select: {
+        id: true,
+        email: true,
+      },
+    });
+    res.json(users);
+  } catch (error) {
+    console.error('Kullanıcıları getirme hatası:', error);
+    res.status(500).json({ error: 'Kullanıcılar alınamadı.' });
   }
 });
 

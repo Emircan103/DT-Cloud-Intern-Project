@@ -83,6 +83,50 @@ router.post('/:id/columns', async (req: AuthRequest, res) => {
   res.status(201).json(column);
 });
 
+// POST /api/columns/:columnId/tasks - Kolona yeni görev ekle
+router.post('/columns/:columnId/tasks', async (req: AuthRequest, res) => {
+  try {
+    const { columnId } = req.params as { columnId: string };
+    const { title, description, assigneeId } = req.body;
+
+    if (!title || !title.trim()) {
+      return res.status(400).json({ error: 'Görev başlığı zorunludur.' });
+    }
+
+    const column = await prisma.column.findFirst({
+      where: { id: columnId },
+    });
+
+    if (!column) {
+      return res.status(404).json({ error: 'Kolon bulunamadı.' });
+    }
+
+    const taskCount = await prisma.task.count({
+      where: { columnId },
+    });
+
+    const task = await prisma.task.create({
+      data: {
+        title: title.trim(),
+        description: description ? description.trim() : null,
+        order: taskCount,
+        columnId,
+        assigneeId: assigneeId && assigneeId.trim() !== '' ? assigneeId.trim() : null,
+      },
+      include: {
+        assignee: {
+          select: { id: true, email: true },
+        },
+      },
+    });
+
+    res.status(201).json(task);
+  } catch (error) {
+    console.error('Görev ekleme hatası:', error);
+    res.status(500).json({ error: 'Görev eklenirken sunucu hatası oluştu.' });
+  }
+});
+
 // POST /api/boards - Yeni pano oluştur
 router.post('/', async (req: AuthRequest, res) => {
   const { name, projectId } = req.body;

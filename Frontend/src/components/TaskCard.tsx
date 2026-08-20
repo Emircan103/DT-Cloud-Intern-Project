@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Box, Heading, Text, Flex, Button, Input, VStack, HStack } from '@chakra-ui/react';
+import { Box, Text, Flex, IconButton, Input, VStack, HStack } from '@chakra-ui/react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 
@@ -21,8 +21,11 @@ export interface TaskItem {
 interface TaskCardProps {
   task: TaskItem;
   users: TaskUser[];
-  onDelete: (taskId: string) => void;
-  onUpdate: (taskId: string, updatedData: { title: string; description?: string; assigneeId?: string | null }) => void;
+  onDelete: (id: string) => void;
+  onUpdate: (
+    id: string,
+    data: { title: string; description?: string; assigneeId?: string | null }
+  ) => void;
 }
 
 export const TaskCard: React.FC<TaskCardProps> = ({ task, users, onDelete, onUpdate }) => {
@@ -31,17 +34,10 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, users, onDelete, onUpd
   const [editDescription, setEditDescription] = useState(task.description || '');
   const [editAssigneeId, setEditAssigneeId] = useState(task.assigneeId || '');
 
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: task.id,
     data: { task },
-    disabled: isEditing, // Düzenleme modundayken sürüklemeyi devre dışı bırak
+    disabled: isEditing,
   });
 
   const style = {
@@ -50,49 +46,57 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, users, onDelete, onUpd
     opacity: isDragging ? 0.4 : 1,
   };
 
-  const handleSave = (e: React.MouseEvent) => {
-    e.stopPropagation();
+  const handleSave = () => {
     if (!editTitle.trim()) return;
     onUpdate(task.id, {
-      title: editTitle,
-      description: editDescription,
+      title: editTitle.trim(),
+      description: editDescription.trim() || undefined,
       assigneeId: editAssigneeId || null,
     });
     setIsEditing(false);
   };
 
-  if (isEditing) {
-    return (
-      <Box
-        ref={setNodeRef}
-        style={style}
-        p={3}
-        bg="white"
-        borderWidth={2}
-        borderColor="blue.400"
-        borderRadius="md"
-        mb={2}
-      >
-        <VStack spaceY={2} align="stretch">
+  const handleCancel = () => {
+    setEditTitle(task.title);
+    setEditDescription(task.description || '');
+    setEditAssigneeId(task.assigneeId || '');
+    setIsEditing(false);
+  };
+
+  return (
+    <Box
+      ref={setNodeRef}
+      style={style}
+      {...attributes}
+      {...listeners}
+      p={3}
+      bg="white"
+      borderRadius="md"
+      boxShadow="sm"
+      mb={3}
+      cursor={isEditing ? 'default' : 'grab'}
+      _hover={{ boxShadow: 'md' }}
+    >
+      {isEditing ? (
+        <VStack gap={2} align="stretch">
           <Input
-            size="xs"
             value={editTitle}
             onChange={(e) => setEditTitle(e.target.value)}
+            size="sm"
             placeholder="Görev başlığı"
-            bg="white"
+            autoFocus
           />
           <Input
-            size="xs"
             value={editDescription}
             onChange={(e) => setEditDescription(e.target.value)}
-            placeholder="Açıklama"
-            bg="white"
+            size="sm"
+            placeholder="Açıklama (İsteğe bağlı)"
           />
           <select
             value={editAssigneeId}
             onChange={(e) => setEditAssigneeId(e.target.value)}
             style={{
-              padding: '4px',
+              padding: '6px',
               fontSize: '12px',
               borderRadius: '4px',
               border: '1px solid #E2E8F0',
@@ -106,74 +110,70 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, users, onDelete, onUpd
               </option>
             ))}
           </select>
-
-          <HStack justifyContent="flex-end" spaceX={1}>
-            <Button size="xs" variant="outline" onClick={() => setIsEditing(false)}>
-              İptal
-            </Button>
-            <Button size="xs" colorPalette="green" onClick={handleSave}>
-              Kaydet
-            </Button>
+          <HStack justifyContent="flex-end">
+            <IconButton size="xs" variant="outline" onClick={handleCancel} aria-label="İptal">
+              ✕
+            </IconButton>
+            <IconButton
+              size="xs"
+              colorPalette="blue"
+              variant="solid"
+              onClick={handleSave}
+              aria-label="Kaydet"
+            >
+              ✓
+            </IconButton>
           </HStack>
         </VStack>
-      </Box>
-    );
-  }
+      ) : (
+        <>
+          <Flex justifyContent="space-between" alignItems="flex-start">
+            <Text fontWeight="medium" fontSize="sm" color="gray.800">
+              {task.title}
+            </Text>
+            <HStack gap={1}>
+              <IconButton
+                size="xs"
+                variant="ghost"
+                onClick={() => setIsEditing(true)}
+                aria-label="Düzenle"
+              >
+                ✎
+              </IconButton>
+              <IconButton
+                size="xs"
+                variant="ghost"
+                colorPalette="red"
+                onClick={() => onDelete(task.id)}
+                aria-label="Sil"
+              >
+                ✕
+              </IconButton>
+            </HStack>
+          </Flex>
 
-  return (
-    <Box
-      ref={setNodeRef}
-      style={style}
-      {...attributes}
-      {...listeners}
-      p={3}
-      bg="white"
-      borderWidth={1}
-      borderRadius="md"
-      boxShadow="sm"
-      cursor="grab"
-      _hover={{ boxShadow: 'md' }}
-      mb={2}
-    >
-      <Flex justifyContent="space-between" alignItems="flex-start">
-        <Heading size="xs" color="gray.800">
-          {task.title}
-        </Heading>
-        <HStack spaceX={1}>
-          <Button
-            size="2xs"
-            variant="ghost"
-            onClick={(e) => {
-              e.stopPropagation();
-              setIsEditing(true);
-            }}
-          >
-            ✎
-          </Button>
-          <Button
-            size="2xs"
-            colorPalette="red"
-            variant="ghost"
-            onClick={(e) => {
-              e.stopPropagation();
-              onDelete(task.id);
-            }}
-          >
-            ✕
-          </Button>
-        </HStack>
-      </Flex>
+          {task.description && (
+            <Text fontSize="xs" color="gray.500" mt={1}>
+              {task.description}
+            </Text>
+          )}
 
-      {task.description && (
-        <Text fontSize="xs" color="gray.600" mt={1}>
-          {task.description}
-        </Text>
-      )}
-
-      {task.assignee && (
-        <Text fontSize="2xs" color="blue.600" mt={2} fontWeight="bold">
-          👤 {task.assignee.email}
-        </Text>
+          {task.assignee && (
+            <Box
+              mt={2}
+              display="inline-block"
+              bg="blue.50"
+              color="blue.700"
+              px={2}
+              py={0.5}
+              borderRadius="full"
+              fontSize="10px"
+              fontWeight="semibold"
+            >
+              👤 {task.assignee.email}
+            </Box>
+          )}
+        </>
       )}
     </Box>
   );
