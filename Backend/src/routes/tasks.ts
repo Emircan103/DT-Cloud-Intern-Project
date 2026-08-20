@@ -5,50 +5,6 @@ import { authenticateToken, AuthRequest } from '../middleware/auth';
 const router = Router();
 router.use(authenticateToken);
 
-// POST /api/columns/:columnId/tasks - Yeni Görev Ekle
-router.post('/columns/:columnId/tasks', async (req: AuthRequest, res) => {
-  try {
-    const { columnId } = req.params as { columnId: string };
-    const { title, description, assigneeId } = req.body;
-
-    if (!title || !title.trim()) {
-      return res.status(400).json({ error: 'Görev başlığı zorunludur.' });
-    }
-
-    const column = await prisma.column.findUnique({
-      where: { id: columnId },
-    });
-
-    if (!column) {
-      return res.status(404).json({ error: 'Kolon bulunamadı.' });
-    }
-
-    const taskCount = await prisma.task.count({
-      where: { columnId },
-    });
-
-    const task = await prisma.task.create({
-      data: {
-        title: title.trim(),
-        description: description ? description.trim() : null,
-        order: taskCount,
-        columnId,
-        assigneeId: assigneeId ? assigneeId : null,
-      },
-      include: {
-        assignee: {
-          select: { id: true, email: true },
-        },
-      },
-    });
-
-    res.status(201).json(task);
-  } catch (error) {
-    console.error('Görev oluşturma hatası:', error);
-    res.status(500).json({ error: 'Görev oluşturulurken sunucu hatası meydana geldi.' });
-  }
-});
-
 // PUT /api/tasks/:id - Görev güncelle
 router.put('/tasks/:id', async (req: AuthRequest, res) => {
   try {
@@ -57,10 +13,12 @@ router.put('/tasks/:id', async (req: AuthRequest, res) => {
 
     const task = await prisma.task.findUnique({
       where: { id },
+      include: { column: { include: { board: { include: { project: true } } } } },
     });
 
-    if (!task) {
-      return res.status(404).json({ error: 'Görev bulunamadı.' });
+    // Yetki Zinciri Kontrolü
+    if (!task || task.column.board.project.ownerId !== req.userId) {
+      return res.status(404).json({ error: 'Görev bulunamadı veya yetkiniz yok.' });
     }
 
     const updatedTask = await prisma.task.update({
@@ -68,7 +26,7 @@ router.put('/tasks/:id', async (req: AuthRequest, res) => {
       data: {
         title: title !== undefined ? title : task.title,
         description: description !== undefined ? description : task.description,
-        assigneeId: assigneeId !== undefined ? assigneeId : task.assigneeId,
+        assigneeId: assigneeId !== undefined ? (assigneeId === "" ? null : assigneeId) : task.assigneeId,
       },
       include: {
         assignee: {
@@ -94,19 +52,31 @@ router.put('/tasks/:id/move', async (req: AuthRequest, res) => {
       return res.status(400).json({ error: 'Hedef kolon ve sıra numarası zorunludur.' });
     }
 
+    // 1. Taşınacak görevin yetki kontrolü
     const task = await prisma.task.findUnique({
       where: { id },
+      include: { column: { include: { board: { include: { project: true } } } } },
     });
 
-    if (!task) {
-      return res.status(404).json({ error: 'Görev bulunamadı.' });
+    if (!task || task.column.board.project.ownerId !== req.userId) {
+      return res.status(404).json({ error: 'Görev bulunamadı veya yetkiniz yok.' });
+    }
+
+    // 2. Hedef kolonun yetki kontrolü
+    const destColumn = await prisma.column.findUnique({
+      where: { id: destinationColumnId },
+      include: { board: { include: { project: true } } },
+    });
+
+    if (!destColumn || destColumn.board.project.ownerId !== req.userId) {
+      return res.status(404).json({ error: 'Hedef kolon bulunamadı veya yetkiniz yok.' });
     }
 
     const sourceColumnId = task.columnId;
     const isSameColumn = sourceColumnId === destinationColumnId;
 
     if (isSameColumn) {
-      // 1. Durum: Aynı Kolon İçi Sıralama
+      // Aynı Kolon İçi Sıralama
       const colTasks = await prisma.task.findMany({
         where: { columnId: sourceColumnId },
         orderBy: { order: 'asc' },
@@ -128,14 +98,12 @@ router.put('/tasks/:id/move', async (req: AuthRequest, res) => {
         );
       }
     } else {
-      // 2. Durum: Farklı Kolonlar Arası Taşıma
-      // A) Kaynak kolondaki kalan görevleri sıfırdan diz
+      // Farklı Kolonlar Arası Taşıma
       const sourceTasks = await prisma.task.findMany({
         where: { columnId: sourceColumnId, id: { not: id } },
         orderBy: { order: 'asc' },
       });
 
-      // B) Hedef kolondaki görevleri al ve taşınan görevi tam hedef sıraya yerleştir
       const destTasks = await prisma.task.findMany({
         where: { columnId: destinationColumnId, id: { not: id } },
         orderBy: { order: 'asc' },
@@ -144,21 +112,17 @@ router.put('/tasks/:id/move', async (req: AuthRequest, res) => {
       const insertIdx = Math.min(Math.max(0, Number(newOrder)), destTasks.length);
       destTasks.splice(insertIdx, 0, task);
 
-      // C) Hem kaynak hem hedef kolonu tek bir Transaction ile güvenle güncelle
       await prisma.$transaction([
-        // Görevi yeni kolona aktar
         prisma.task.update({
           where: { id },
           data: { columnId: destinationColumnId },
         }),
-        // Kaynak kolonu yeniden sırala (0, 1, 2...)
         ...sourceTasks.map((t, idx) =>
           prisma.task.update({
             where: { id: t.id },
             data: { order: idx },
           })
         ),
-        // Hedef kolonu yeniden sırala (0, 1, 2...)
         ...destTasks.map((t, idx) =>
           prisma.task.update({
             where: { id: t.id },
@@ -191,10 +155,12 @@ router.delete('/tasks/:id', async (req: AuthRequest, res) => {
 
     const task = await prisma.task.findUnique({
       where: { id },
+      include: { column: { include: { board: { include: { project: true } } } } },
     });
 
-    if (!task) {
-      return res.status(404).json({ error: 'Görev bulunamadı.' });
+    // Yetki Zinciri Kontrolü
+    if (!task || task.column.board.project.ownerId !== req.userId) {
+      return res.status(404).json({ error: 'Görev bulunamadı veya yetkiniz yok.' });
     }
 
     const columnId = task.columnId;
@@ -203,7 +169,6 @@ router.delete('/tasks/:id', async (req: AuthRequest, res) => {
       where: { id },
     });
 
-    // Silinen görevden sonra kolondaki sıraları düzelt
     const remainingTasks = await prisma.task.findMany({
       where: { columnId },
       orderBy: { order: 'asc' },
