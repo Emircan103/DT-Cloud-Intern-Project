@@ -53,6 +53,11 @@ router.get('/:id/columns', async (req: AuthRequest, res) => {
 });
 
 // POST /api/boards/:id/columns - Panoya yeni kolon ekle
+
+// Bu yapı frontend tarafında bir anlam ifade etmiyor
+// çünkü sabit sayıda kolon oluşturuluyor ve frontend tarafında ekleme yapılacak
+// bir yapı yok. Ancak backend tarafında kolon ekleme yeteneği sağlamak ve CRUD işlemlerini
+// desteklemek için bu endpoint oluşturuldu. Bu sayede ileride frontend tarafında kolon ekleme özelliği eklenebilir.
 router.post('/:id/columns', async (req: AuthRequest, res) => {
   const { id } = req.params as { id: string };
   const { name } = req.body;
