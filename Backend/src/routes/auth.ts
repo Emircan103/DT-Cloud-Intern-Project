@@ -98,4 +98,16 @@ router.get('/users', authenticateToken, async (_req: AuthRequest, res) => {
   }
 });
 
+// GET /api/auth/users -> Atama için kullanıcıları listele
+router.get('/users', authenticateToken, async (req: AuthRequest, res) => {
+  try {
+    const users = await prisma.user.findMany({
+      select: { id: true, email: true },
+    });
+    res.json(users);
+  } catch (error) {
+    res.status(500).json({ error: 'Kullanıcılar listelenemedi' });
+  }
+});
+
 export default router;

@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
+import { AxiosError } from 'axios';
 import { api } from '../lib/axios';
 
 interface UserSummary {
   id: string;
-  name: string;
   email: string;
 }
 
@@ -26,40 +26,73 @@ interface Task {
   title: string;
   description?: string | null;
   assignee?: UserSummary | null;
+  assigneeId?: string | null;
+  columnId?: string;
 }
 
 interface Props {
   task: Task | null;
   onClose: () => void;
+  onTaskUpdated?: (task: Task) => void;
+  onTaskDeleted?: (taskId: string) => void;
 }
 
-export function TaskDetailModal({ task, onClose }: Props) {
+export function TaskDetailModal({ task, onClose, onTaskUpdated, onTaskDeleted }: Props) {
+  if (!task) return null;
+
+  return (
+    <TaskDetailModalContent
+      key={task.id}
+      task={task}
+      onClose={onClose}
+      onTaskUpdated={onTaskUpdated}
+      onTaskDeleted={onTaskDeleted}
+    />
+  );
+}
+
+function TaskDetailModalContent({ task, onClose, onTaskUpdated, onTaskDeleted }: {
+  task: Task;
+  onClose: () => void;
+  onTaskUpdated?: (task: Task) => void;
+  onTaskDeleted?: (taskId: string) => void;
+}) {
   const [comments, setComments] = useState<Comment[]>([]);
   const [activities, setActivities] = useState<ActivityLog[]>([]);
+  const [users, setUsers] = useState<UserSummary[]>([]);
   const [newComment, setNewComment] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [activeTab, setActiveTab] = useState<'comments' | 'activity'>('comments');
 
-  useEffect(() => {
-    if (!task) return;
+  const [isEditing, setIsEditing] = useState(false);
+  const [editTitle, setEditTitle] = useState(task.title);
+  const [editDescription, setEditDescription] = useState(task.description || '');
+  const [editAssigneeId, setEditAssigneeId] = useState(task.assignee?.id || task.assigneeId || '');
+  const [savingEdit, setSavingEdit] = useState(false);
 
-    const fetchData = async () => {
-      try {
-        const [commentsRes, activitiesRes] = await Promise.all([
-          api.get(`/tasks/${task.id}/comments`),
-          api.get(`/tasks/${task.id}/activity`),
-        ]);
+  useEffect(() => {
+    let isMounted = true;
+
+    Promise.all([
+      api.get(`/tasks/${task.id}/comments`),
+      api.get(`/tasks/${task.id}/activity`),
+      api.get('/auth/users'),
+    ])
+      .then(([commentsRes, activitiesRes, usersRes]) => {
+        if (!isMounted) return;
         setComments(commentsRes.data);
         setActivities(activitiesRes.data);
-      } catch (err) {
+        setUsers(usersRes.data);
+      })
+      .catch((err: unknown) => {
+        if (!isMounted) return;
         console.error('Veriler yüklenirken hata oluştu', err);
-      }
+      });
+
+    return () => {
+      isMounted = false;
     };
-
-    fetchData();
-  }, [task]);
-
-  if (!task) return null;
+  }, [task.id]);
 
   const handleAddComment = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -70,32 +103,67 @@ export function TaskDetailModal({ task, onClose }: Props) {
       const res = await api.post(`/tasks/${task.id}/comments`, {
         content: newComment.trim(),
       });
-      // Kendi yorumumuzu doğrudan ekleyelim (Socket diğer kullanıcılara ulaştıracak)
       setComments((prev) => [...prev, res.data]);
       setNewComment('');
-    } catch (err) {
+
+      const actRes = await api.get(`/tasks/${task.id}/activity`);
+      setActivities(actRes.data);
+    } catch (err: unknown) {
       console.error('Yorum eklenemedi', err);
     } finally {
       setSubmitting(false);
     }
   };
 
+  const handleSaveEdit = async () => {
+    if (!editTitle.trim() || savingEdit) return;
+
+    setSavingEdit(true);
+    try {
+      const res = await api.put(`/tasks/${task.id}`, {
+        title: editTitle.trim(),
+        description: editDescription.trim(),
+        assigneeId: editAssigneeId ? editAssigneeId : null,
+      });
+      if (onTaskUpdated) onTaskUpdated(res.data);
+      setIsEditing(false);
+
+      const actRes = await api.get(`/tasks/${task.id}/activity`);
+      setActivities(actRes.data);
+    } catch (err: unknown) {
+      console.error('Görev güncellenemedi', err);
+      let message = 'Görev güncellenirken hata oluştu.';
+      if (err instanceof AxiosError && err.response?.data?.error) {
+        message = err.response.data.error;
+      }
+      alert(message);
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
+  const handleDeleteTask = async () => {
+    if (!window.confirm('Bu görevi silmek istediğinize emin misiniz?')) return;
+
+    try {
+      await api.delete(`/tasks/${task.id}`);
+      if (onTaskDeleted) onTaskDeleted(task.id);
+      onClose();
+    } catch (err: unknown) {
+      console.error('Görev silinemedi', err);
+      alert('Görev silinirken hata oluştu.');
+    }
+  };
+
   const getActionLabel = (action: string) => {
     switch (action) {
-      case 'TASK_CREATED':
-        return 'görevi oluşturdu';
-      case 'TASK_MOVED':
-        return 'görevin durumunu/kolonunu değiştirdi';
-      case 'TASK_ASSIGNED':
-        return 'görevi bir kullanıcıya atadı';
-      case 'TASK_UPDATED':
-        return 'görev detaylarını güncelledi';
-      case 'TASK_DELETED':
-        return 'görevi sildi';
-      case 'COMMENT_ADDED':
-        return 'bir yorum ekledi';
-      default:
-        return action;
+      case 'TASK_CREATED': return 'görevi oluşturdu';
+      case 'TASK_MOVED': return 'görevin kolonunu değiştirdi';
+      case 'TASK_ASSIGNED': return 'görevi atadı';
+      case 'TASK_UPDATED': return 'görev detaylarını güncelledi';
+      case 'TASK_DELETED': return 'görevi sildi';
+      case 'COMMENT_ADDED': return 'bir yorum ekledi';
+      default: return action;
     }
   };
 
@@ -118,8 +186,8 @@ export function TaskDetailModal({ task, onClose }: Props) {
           backgroundColor: '#ffffff',
           borderRadius: '12px',
           width: '100%',
-          maxWidth: '560px',
-          maxHeight: '85vh',
+          maxWidth: '580px',
+          maxHeight: '90vh',
           display: 'flex',
           flexDirection: 'column',
           boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.2)',
@@ -127,13 +195,38 @@ export function TaskDetailModal({ task, onClose }: Props) {
         }}
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Header */}
-        <div style={{ padding: '20px 24px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div>
-            <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 700, color: '#0f172a' }}>{task.title}</h3>
-            {task.assignee && (
-              <span style={{ fontSize: '12px', color: '#64748b' }}>Atanan: {task.assignee.name || task.assignee.email}</span>
-            )}
+        <div style={{ padding: '16px 24px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <button
+              onClick={() => setIsEditing(!isEditing)}
+              style={{
+                backgroundColor: isEditing ? '#e2e8f0' : '#f8fafc',
+                border: '1px solid #cbd5e1',
+                borderRadius: '6px',
+                padding: '4px 10px',
+                fontSize: '12px',
+                fontWeight: 600,
+                cursor: 'pointer',
+                color: '#334155',
+              }}
+            >
+              {isEditing ? 'Düzenlemeyi Kapat' : '✏️ Düzenle'}
+            </button>
+            <button
+              onClick={handleDeleteTask}
+              style={{
+                backgroundColor: '#fee2e2',
+                color: '#ef4444',
+                border: '1px solid #fca5a5',
+                borderRadius: '6px',
+                padding: '4px 10px',
+                fontSize: '12px',
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+            >
+              🗑️ Sil
+            </button>
           </div>
           <button
             onClick={onClose}
@@ -143,16 +236,88 @@ export function TaskDetailModal({ task, onClose }: Props) {
           </button>
         </div>
 
-        {/* Description */}
-        <div style={{ padding: '16px 24px', backgroundColor: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-          <span style={{ fontSize: '12px', fontWeight: 600, color: '#475569', display: 'block', marginBottom: '4px' }}>Açıklama</span>
-          <p style={{ margin: 0, fontSize: '14px', color: '#334155', whiteSpace: 'pre-wrap' }}>
-            {task.description || 'Açıklama girilmemiş.'}
-          </p>
+        <div style={{ padding: '20px 24px', backgroundColor: isEditing ? '#f8fafc' : '#ffffff', borderBottom: '1px solid #e2e8f0' }}>
+          {isEditing ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <div>
+                <label style={{ fontSize: '12px', fontWeight: 600, color: '#475569', display: 'block', marginBottom: '4px' }}>
+                  Başlık
+                </label>
+                <input
+                  type="text"
+                  value={editTitle}
+                  onChange={(e) => setEditTitle(e.target.value)}
+                  placeholder="Görev başlığı"
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '14px', fontWeight: 600, boxSizing: 'border-box' }}
+                />
+              </div>
+
+              <div>
+                <label style={{ fontSize: '12px', fontWeight: 600, color: '#475569', display: 'block', marginBottom: '4px' }}>
+                  Açıklama
+                </label>
+                <textarea
+                  value={editDescription}
+                  onChange={(e) => setEditDescription(e.target.value)}
+                  placeholder="Açıklama"
+                  rows={3}
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '13px', resize: 'vertical', boxSizing: 'border-box' }}
+                />
+              </div>
+
+              <div>
+                <label style={{ fontSize: '12px', fontWeight: 600, color: '#475569', display: 'block', marginBottom: '4px' }}>
+                  Kullanıcı Ata (Assignee)
+                </label>
+                <select
+                  value={editAssigneeId}
+                  onChange={(e) => setEditAssigneeId(e.target.value)}
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '13px', backgroundColor: '#fff', boxSizing: 'border-box' }}
+                >
+                  <option value="">-- Atanmamış --</option>
+                  {users.map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {u.email}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '6px' }}>
+                <button
+                  onClick={() => setIsEditing(false)}
+                  style={{ padding: '6px 12px', border: 'none', background: '#e2e8f0', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' }}
+                >
+                  İptal
+                </button>
+                <button
+                  onClick={handleSaveEdit}
+                  disabled={savingEdit || !editTitle.trim()}
+                  style={{ padding: '6px 14px', border: 'none', background: '#2563eb', color: '#fff', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', fontWeight: 600 }}
+                >
+                  {savingEdit ? 'Kaydediliyor...' : 'Değişiklikleri Kaydet'}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div>
+              <h2 style={{ margin: '0 0 6px 0', fontSize: '18px', fontWeight: 700, color: '#0f172a' }}>{task.title}</h2>
+              <div style={{ fontSize: '12px', color: '#64748b', marginBottom: '8px' }}>
+                Atanan:{' '}
+                {task.assignee ? (
+                  <strong style={{ color: '#2563eb' }}>{task.assignee.email}</strong>
+                ) : (
+                  <span style={{ color: '#94a3b8' }}>Kimseye atanmamış</span>
+                )}
+              </div>
+              <p style={{ margin: 0, fontSize: '14px', color: '#334155', whiteSpace: 'pre-wrap' }}>
+                {task.description || 'Açıklama girilmemiş.'}
+              </p>
+            </div>
+          )}
         </div>
 
-        {/* Tabs */}
-        <div style={{ display: 'flex', borderBottom: '1px solid #e2e8f0', padding: '0 24px' }}>
+        <div style={{ display: 'flex', borderBottom: '1px solid #e2e8f0', padding: '0 24px', backgroundColor: '#ffffff' }}>
           <button
             onClick={() => setActiveTab('comments')}
             style={{
@@ -183,7 +348,6 @@ export function TaskDetailModal({ task, onClose }: Props) {
           </button>
         </div>
 
-        {/* Body Content */}
         <div style={{ padding: '20px 24px', flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '14px' }}>
           {activeTab === 'comments' ? (
             <>
@@ -194,8 +358,10 @@ export function TaskDetailModal({ task, onClose }: Props) {
                   comments.map((c) => (
                     <div key={c.id} style={{ background: '#f8fafc', padding: '10px 14px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-                        <strong style={{ fontSize: '13px', color: '#1e293b' }}>{c.author?.name || c.author?.email}</strong>
-                        <span style={{ fontSize: '11px', color: '#94a3b8' }}>{new Date(c.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                        <strong style={{ fontSize: '13px', color: '#1e293b' }}>{c.author?.email}</strong>
+                        <span style={{ fontSize: '11px', color: '#94a3b8' }}>
+                          {new Date(c.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </span>
                       </div>
                       <p style={{ margin: 0, fontSize: '13px', color: '#334155' }}>{c.content}</p>
                     </div>
@@ -243,10 +409,10 @@ export function TaskDetailModal({ task, onClose }: Props) {
                 activities.map((act) => (
                   <div key={act.id} style={{ fontSize: '12px', color: '#475569', display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#3b82f6' }}></span>
-                    <strong style={{ color: '#0f172a' }}>{act.user?.name || act.user?.email}</strong>
+                    <strong style={{ color: '#0f172a' }}>{act.user?.email}</strong>
                     <span>{getActionLabel(act.action)}</span>
                     <span style={{ color: '#94a3b8', marginLeft: 'auto' }}>
-                      {new Date(act.createdAt).toLocaleDateString()} {new Date(act.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      {new Date(act.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                     </span>
                   </div>
                 ))
