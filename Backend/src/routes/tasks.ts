@@ -50,12 +50,17 @@ router.put('/tasks/:id', async (req: AuthRequest, res) => {
       return res.status(403).json({ error: 'Görevi güncelleme yetkiniz yok.' });
     }
 
+    // Yalnızca Proje Sahibi görev atamasını (assignee) değiştirebilir
+    if (!isOwner && assigneeId !== undefined && assigneeId !== task.assigneeId) {
+      return res.status(403).json({ error: 'Görev atama yetkisi yalnızca proje yöneticisine aittir.' });
+    }
+
     const updatedTask = await prisma.task.update({
       where: { id },
       data: {
         title: title !== undefined ? title.trim() : task.title,
         description: description !== undefined ? description.trim() : task.description,
-        assigneeId: assigneeId !== undefined ? (assigneeId === '' ? null : assigneeId) : task.assigneeId,
+        assigneeId: isOwner && assigneeId !== undefined ? (assigneeId === '' ? null : assigneeId) : task.assigneeId,
       },
       include: {
         assignee: { select: { id: true, email: true } },
