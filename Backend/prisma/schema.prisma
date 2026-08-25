@@ -6,13 +6,24 @@ datasource db {
   provider = "postgresql"
 }
 
+enum ActionType {
+  TASK_CREATED
+  TASK_MOVED
+  TASK_ASSIGNED
+  TASK_UPDATED
+  TASK_DELETED
+  COMMENT_ADDED
+}
+
 model User {
-  id        String    @id @default(uuid())
-  email     String    @unique
-  password  String
-  createdAt DateTime  @default(now())
-  projects  Project[]
-  tasks     Task[]    // Kullanıcıya atanan görevler
+  id           String        @id @default(uuid())
+  email        String        @unique
+  password     String
+  createdAt    DateTime      @default(now())
+  projects     Project[]
+  tasks        Task[]
+  comments     Comment[]
+  activityLogs ActivityLog[]
 }
 
 model Project {
@@ -32,13 +43,12 @@ model Board {
   project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
   columns   Column[]
   createdAt DateTime @default(now())
-  
 }
 
 model Column {
   id        String   @id @default(uuid())
   name      String
-  order     Int      // Kolon sıralaması
+  order     Int
   boardId   String
   board     Board    @relation(fields: [boardId], references: [id], onDelete: Cascade)
   tasks     Task[]
@@ -46,13 +56,35 @@ model Column {
 }
 
 model Task {
-  id          String   @id @default(uuid())
-  title       String
-  description String?
-  order       Int      // Kolon içindeki görev sıralaması
-  columnId    String
-  column      Column   @relation(fields: [columnId], references: [id], onDelete: Cascade)
-  assigneeId  String?
-  assignee    User?    @relation(fields: [assigneeId], references: [id], onDelete: SetNull)
-  createdAt   DateTime @default(now())
+  id           String        @id @default(uuid())
+  title        String
+  description  String?
+  order        Int
+  columnId     String
+  column       Column        @relation(fields: [columnId], references: [id], onDelete: Cascade)
+  assigneeId   String?
+  assignee     User?         @relation(fields: [assigneeId], references: [id], onDelete: SetNull)
+  comments     Comment[]
+  activityLogs ActivityLog[]
+  createdAt    DateTime      @default(now())
+}
+
+model Comment {
+  id        String   @id @default(uuid())
+  content   String
+  taskId    String
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  authorId  String
+  author    User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+}
+
+model ActivityLog {
+  id        String     @id @default(uuid())
+  action    ActionType
+  taskId    String
+  task      Task       @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime   @default(now())
 }
