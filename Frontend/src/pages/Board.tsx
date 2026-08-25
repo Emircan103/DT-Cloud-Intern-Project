@@ -1,308 +1,344 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { Box, Button, Input, Heading, Text, Flex, HStack } from '@chakra-ui/react';
-import { useParams, useNavigate } from 'react-router-dom';
-import axios from 'axios';
-import {
-  DndContext,
-  closestCorners,
-  PointerSensor,
-  useSensor,
-  useSensors,
-  type DragEndEvent,
-} from '@dnd-kit/core';
+import React, { useEffect, useState, useCallback } from 'react';
+import { useParams, Link } from 'react-router-dom';
 import { api } from '../lib/axios';
-import { DroppableColumn, type ColumnItem } from '../components/DroppableColumn';
-import type { TaskItem, TaskUser } from '../components/TaskCard';
+import { socket } from '../lib/socket';
+import { TaskDetailModal } from '../components/TaskDetailModal';
 
-export const Board = () => {
-  const { id } = useParams<{ id: string }>();
-  const navigate = useNavigate();
+interface UserSummary {
+  id: string;
+  name: string;
+  email: string;
+}
 
-  const [columns, setColumns] = useState<ColumnItem[]>([]);
-  const [users, setUsers] = useState<TaskUser[]>([]);
-  const [search, setSearch] = useState('');
-  const [selectedAssignee, setSelectedAssignee] = useState('');
-  const [error, setError] = useState('');
+interface Task {
+  id: string;
+  title: string;
+  description?: string | null;
+  order: number;
+  columnId: string;
+  assignee?: UserSummary | null;
+}
 
-  const [activeColumnId, setActiveColumnId] = useState<string | null>(null);
-  const [taskTitle, setTaskTitle] = useState('');
-  const [taskDescription, setTaskDescription] = useState('');
-  const [taskAssigneeId, setTaskAssigneeId] = useState('');
+interface Column {
+  id: string;
+  name: string;
+  order: number;
+  tasks: Task[];
+}
 
-  const sensors = useSensors(
-    useSensor(PointerSensor, {
-      activationConstraint: {
-        distance: 5,
-      },
-    })
-  );
+interface BoardData {
+  id: string;
+  name: string;
+  projectId: string;
+  columns: Column[];
+}
 
-  useEffect(() => {
-    const fetchUsers = async () => {
-      try {
-        const res = await api.get('/auth/users');
-        setUsers(res.data);
-      } catch (err) {
-        console.error('Kullanıcılar yüklenemedi:', err);
-      }
-    };
-    fetchUsers();
-  }, []);
+export function Board() {
+  const { id: boardId } = useParams<{ id: string }>();
+  const [board, setBoard] = useState<BoardData | null>(null);
+  const [activeUsers, setActiveUsers] = useState<UserSummary[]>([]);
+  const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  const [loading, setLoading] = useState(true);
 
-  const refreshData = useCallback(async () => {
-    if (!id) return;
+  const loadBoardData = useCallback(async () => {
+    if (!boardId) return;
     try {
-      setError('');
-      const res = await api.get(`/boards/${id}/columns`, {
-        params: {
-          search: search || undefined,
-          assigneeId: selectedAssignee || undefined,
-        },
-      });
-      setColumns(res.data);
-    } catch (err: unknown) {
-      if (axios.isAxiosError(err)) {
-        setError(err.response?.data?.error || 'Kolonlar ve görevler yüklenemedi.');
-      }
+      const res = await api.get(`/boards/${boardId}`);
+      const sortedBoard = {
+        ...res.data,
+        columns: res.data.columns.map((col: Column) => ({
+          ...col,
+          tasks: (col.tasks || []).sort((a: Task, b: Task) => a.order - b.order),
+        })),
+      };
+      setBoard(sortedBoard);
+    } catch (err) {
+      console.error('Board yüklenemedi', err);
+    } finally {
+      setLoading(false);
     }
-  }, [id, search, selectedAssignee]);
+  }, [boardId]);
 
   useEffect(() => {
-    let ignore = false;
+    if (!boardId) return;
 
-    const loadColumns = async () => {
-      if (!id) return;
-      try {
-        const res = await api.get(`/boards/${id}/columns`, {
-          params: {
-            search: search || undefined,
-            assigneeId: selectedAssignee || undefined,
-          },
-        });
-        if (!ignore) {
-          setColumns(res.data);
-          setError('');
-        }
-      } catch (err: unknown) {
-        if (!ignore && axios.isAxiosError(err)) {
-          setError(err.response?.data?.error || 'Kolonlar ve görevler yüklenemedi.');
-        }
-      }
+    let isMounted = true;
+
+    api.get(`/boards/${boardId}`)
+      .then((res) => {
+        if (!isMounted) return;
+        const sortedBoard = {
+          ...res.data,
+          columns: res.data.columns.map((col: Column) => ({
+            ...col,
+            tasks: (col.tasks || []).sort((a: Task, b: Task) => a.order - b.order),
+          })),
+        };
+        setBoard(sortedBoard);
+        setLoading(false);
+      })
+      .catch((err) => {
+        if (!isMounted) return;
+        console.error('Board yüklenemedi', err);
+        setLoading(false);
+      });
+
+    socket.connect();
+    socket.emit('join:board', boardId);
+
+    const handlePresenceUpdate = (users: UserSummary[]) => {
+      const uniqueUsers = Array.from(new Map(users.map((u) => [u.id, u])).values());
+      setActiveUsers(uniqueUsers);
     };
 
-    loadColumns();
+    const handleTaskCreated = (newTask: Task) => {
+      setBoard((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          columns: prev.columns.map((col) => {
+            if (col.id === newTask.columnId) {
+              const exists = col.tasks.some((t) => t.id === newTask.id);
+              if (exists) return col;
+              return { ...col, tasks: [...col.tasks, newTask].sort((a, b) => a.order - b.order) };
+            }
+            return col;
+          }),
+        };
+      });
+    };
+
+    const handleTaskUpdated = (updatedTask: Task) => {
+      setBoard((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          columns: prev.columns.map((col) => {
+            const otherTasks = col.tasks.filter((t) => t.id !== updatedTask.id);
+            if (col.id === updatedTask.columnId) {
+              return { ...col, tasks: [...otherTasks, updatedTask].sort((a, b) => a.order - b.order) };
+            }
+            return { ...col, tasks: otherTasks };
+          }),
+        };
+      });
+    };
+
+    const handleTaskDeleted = ({ taskId, columnId }: { taskId: string; columnId: string }) => {
+      setBoard((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          columns: prev.columns.map((col) => {
+            if (col.id === columnId) {
+              return { ...col, tasks: col.tasks.filter((t) => t.id !== taskId) };
+            }
+            return col;
+          }),
+        };
+      });
+    };
+
+    socket.on('presence:update', handlePresenceUpdate);
+    socket.on('task:created', handleTaskCreated);
+    socket.on('task:updated', handleTaskUpdated);
+    socket.on('task:deleted', handleTaskDeleted);
 
     return () => {
-      ignore = true;
+      isMounted = false;
+      socket.emit('leave:board', boardId);
+      socket.off('presence:update', handlePresenceUpdate);
+      socket.off('task:created', handleTaskCreated);
+      socket.off('task:updated', handleTaskUpdated);
+      socket.off('task:deleted', handleTaskDeleted);
+      socket.disconnect();
     };
-  }, [id, search, selectedAssignee]);
+  }, [boardId]);
 
-  const handleCreateTask = async (columnId: string) => {
-    if (!taskTitle.trim()) return;
+  const handleQuickAddTask = async (columnId: string) => {
+    const title = window.prompt('Görev başlığı:');
+    if (!title?.trim()) return;
 
     try {
-      await api.post(`/columns/${columnId}/tasks`, {
-        title: taskTitle,
-        description: taskDescription,
-        assigneeId: taskAssigneeId || undefined,
+      const res = await api.post('/tasks', { title: title.trim(), columnId });
+      setBoard((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          columns: prev.columns.map((col) =>
+            col.id === columnId ? { ...col, tasks: [...col.tasks, res.data] } : col
+          ),
+        };
+      });
+    } catch (err) {
+      console.error('Görev eklenemedi', err);
+    }
+  };
+
+  const handleDragStart = (e: React.DragEvent, taskId: string, sourceColumnId: string) => {
+    e.dataTransfer.setData('text/plain', JSON.stringify({ taskId, sourceColumnId }));
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+  };
+
+  const handleDrop = async (e: React.DragEvent, targetColumnId: string) => {
+    e.preventDefault();
+    const data = e.dataTransfer.getData('text/plain');
+    if (!data) return;
+
+    const { taskId, sourceColumnId } = JSON.parse(data);
+    if (sourceColumnId === targetColumnId) return;
+
+    setBoard((prev) => {
+      if (!prev) return prev;
+      let movedTask: Task | undefined;
+      const newColumns = prev.columns.map((col) => {
+        if (col.id === sourceColumnId) {
+          movedTask = col.tasks.find((t) => t.id === taskId);
+          return { ...col, tasks: col.tasks.filter((t) => t.id !== taskId) };
+        }
+        return col;
       });
 
-      setTaskTitle('');
-      setTaskDescription('');
-      setTaskAssigneeId('');
-      setActiveColumnId(null);
-      await refreshData();
-    } catch (err: unknown) {
-      if (axios.isAxiosError(err)) {
-        setError(err.response?.data?.error || 'Görev oluşturulamadı.');
-      }
-    }
-  };
+      if (!movedTask) return prev;
+      movedTask.columnId = targetColumnId;
 
-  const handleUpdateTask = async (
-    taskId: string,
-    updatedData: { title: string; description?: string; assigneeId?: string | null }
-  ) => {
-    try {
-      await api.put(`/tasks/${taskId}`, updatedData);
-      await refreshData();
-    } catch (err: unknown) {
-      if (axios.isAxiosError(err)) {
-        setError(err.response?.data?.error || 'Görev güncellenemedi.');
-      }
-    }
-  };
-
-  const handleDeleteTask = async (taskId: string) => {
-    try {
-      await api.delete(`/tasks/${taskId}`);
-      await refreshData();
-    } catch (err: unknown) {
-      if (axios.isAxiosError(err)) {
-        setError(err.response?.data?.error || 'Görev silinemedi.');
-      }
-    }
-  };
-
-  const handleDragEnd = async (event: DragEndEvent) => {
-    const { active, over } = event;
-    if (!over) return;
-
-    const activeTaskId = String(active.id);
-    const overId = String(over.id);
-
-    if (activeTaskId === overId) return;
-
-    let sourceCol: ColumnItem | undefined;
-    let draggedTask: TaskItem | undefined;
-
-    for (const col of columns) {
-      const found = col.tasks.find((t) => t.id === activeTaskId);
-      if (found) {
-        sourceCol = col;
-        draggedTask = { ...found };
-        break;
-      }
-    }
-
-    if (!draggedTask || !sourceCol) return;
-
-    let destCol = columns.find((c) => c.id === overId);
-    let targetIndex = -1;
-
-    if (destCol) {
-      targetIndex = destCol.tasks.length;
-    } else {
-      destCol = columns.find((c) => c.tasks.some((t) => t.id === overId));
-      if (destCol) {
-        targetIndex = destCol.tasks.findIndex((t) => t.id === overId);
-      }
-    }
-
-    if (!destCol) return;
-    if (targetIndex < 0) targetIndex = 0;
-
-    const isSameColumn = sourceCol.id === destCol.id;
-    const currentIndex = sourceCol.tasks.findIndex((t) => t.id === activeTaskId);
-    if (isSameColumn && currentIndex === targetIndex) return;
-
-    const updatedColumns = columns.map((col) => {
-      if (isSameColumn && col.id === sourceCol?.id) {
-        const list = [...col.tasks];
-        const [moved] = list.splice(currentIndex, 1);
-        list.splice(targetIndex, 0, moved);
-        return {
-          ...col,
-          tasks: list.map((t, idx) => ({ ...t, order: idx })),
-        };
-      }
-
-      if (col.id === sourceCol?.id) {
-        const list = col.tasks.filter((t) => t.id !== activeTaskId);
-        return {
-          ...col,
-          tasks: list.map((t, idx) => ({ ...t, order: idx })),
-        };
-      }
-
-      if (col.id === destCol?.id) {
-        const list = [...col.tasks];
-        draggedTask!.columnId = destCol.id;
-        list.splice(targetIndex, 0, draggedTask!);
-        return {
-          ...col,
-          tasks: list.map((t, idx) => ({ ...t, order: idx })),
-        };
-      }
-
-      return col;
+      return {
+        ...prev,
+        columns: newColumns.map((col) =>
+          col.id === targetColumnId ? { ...col, tasks: [...col.tasks, movedTask!] } : col
+        ),
+      };
     });
 
-    setColumns(updatedColumns);
-
     try {
-      await api.put(`/tasks/${activeTaskId}/move`, {
-        destinationColumnId: destCol.id,
-        newOrder: targetIndex,
-      });
-    } catch (err: unknown) {
-      console.error('Taşıma hatası:', err);
-      await refreshData();
+      await api.patch(`/tasks/${taskId}`, { columnId: targetColumnId });
+    } catch (err) {
+      console.error('Görev taşınamadı', err);
+      loadBoardData();
     }
   };
 
+  if (loading) {
+    return <div style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>Pano yükleniyor...</div>;
+  }
+
+  if (!board) {
+    return <div style={{ padding: '40px', textAlign: 'center', color: '#ef4444' }}>Pano bulunamadı.</div>;
+  }
+
   return (
-    <Box maxW="7xl" mx="auto" mt={6} p={4}>
-      <Flex justifyContent="space-between" alignItems="center" mb={6} flexWrap="wrap" gap={4}>
-        <HStack>
-          <Button size="sm" variant="outline" onClick={() => navigate(-1)}>
-            ← Geri Dön
-          </Button>
-          <Heading size="lg">Kanban Panosu</Heading>
-        </HStack>
+    <div style={{ minHeight: '100vh', backgroundColor: '#f1f5f9', display: 'flex', flexDirection: 'column', fontFamily: 'sans-serif' }}>
+      <header style={{ backgroundColor: '#ffffff', borderBottom: '1px solid #e2e8f0', padding: '16px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+          <Link to={`/projects/${board.projectId}`} style={{ color: '#64748b', textDecoration: 'none', fontSize: '14px' }}>
+            ← Projeye Dön
+          </Link>
+          <h1 style={{ margin: 0, fontSize: '20px', fontWeight: 700, color: '#0f172a' }}>{board.name}</h1>
+        </div>
 
-        <HStack gap={3}>
-          <Input
-            placeholder="Görevlerde ara..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            size="sm"
-            maxW="200px"
-          />
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <span style={{ fontSize: '13px', color: '#64748b', fontWeight: 500 }}>Şu an panoda:</span>
+          <div style={{ display: 'flex', gap: '6px' }}>
+            {activeUsers.map((u) => (
+              <div
+                key={u.id}
+                title={u.name || u.email}
+                style={{
+                  width: '32px',
+                  height: '32px',
+                  borderRadius: '50%',
+                  backgroundColor: '#2563eb',
+                  color: '#ffffff',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  boxShadow: '0 0 0 2px #fff',
+                }}
+              >
+                {(u.name || u.email).charAt(0).toUpperCase()}
+              </div>
+            ))}
+          </div>
+        </div>
+      </header>
 
-          <select
-            value={selectedAssignee}
-            onChange={(e) => setSelectedAssignee(e.target.value)}
+      <main style={{ flex: 1, padding: '24px', overflowX: 'auto', display: 'flex', gap: '20px', alignItems: 'flex-start' }}>
+        {board.columns.map((column) => (
+          <div
+            key={column.id}
+            onDragOver={handleDragOver}
+            onDrop={(e) => handleDrop(e, column.id)}
             style={{
-              padding: '6px 10px',
-              fontSize: '14px',
-              borderRadius: '6px',
-              border: '1px solid #E2E8F0',
-              background: 'white',
+              backgroundColor: '#e2e8f0',
+              borderRadius: '8px',
+              width: '300px',
+              minWidth: '300px',
+              maxHeight: 'calc(100vh - 120px)',
+              display: 'flex',
+              flexDirection: 'column',
+              padding: '12px',
             }}
           >
-            <option value="">Tüm Kişiler</option>
-            {users.map((u) => (
-              <option key={u.id} value={u.id}>
-                {u.email}
-              </option>
-            ))}
-          </select>
-        </HStack>
-      </Flex>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+              <span style={{ fontWeight: 700, fontSize: '14px', color: '#334155' }}>
+                {column.name} ({column.tasks.length})
+              </span>
+              <button
+                onClick={() => handleQuickAddTask(column.id)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: '#2563eb',
+                  fontWeight: 700,
+                  fontSize: '18px',
+                  cursor: 'pointer',
+                }}
+                title="Yeni Görev Ekle"
+              >
+                +
+              </button>
+            </div>
 
-      {error && (
-        <Box p={3} bg="red.100" color="red.700" borderRadius="md" mb={4}>
-          <Text fontWeight="bold">{error}</Text>
-        </Box>
-      )}
+            <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              {column.tasks.map((task) => (
+                <div
+                  key={task.id}
+                  draggable
+                  onDragStart={(e) => handleDragStart(e, task.id, column.id)}
+                  onClick={() => setSelectedTask(task)}
+                  style={{
+                    backgroundColor: '#ffffff',
+                    padding: '12px',
+                    borderRadius: '6px',
+                    boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
+                    cursor: 'grab',
+                    border: '1px solid #cbd5e1',
+                  }}
+                >
+                  <div style={{ fontWeight: 600, fontSize: '14px', color: '#0f172a', marginBottom: '4px' }}>
+                    {task.title}
+                  </div>
+                  {task.description && (
+                    <div style={{ fontSize: '12px', color: '#64748b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {task.description}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </main>
 
-      <DndContext
-        sensors={sensors}
-        collisionDetection={closestCorners}
-        onDragEnd={handleDragEnd}
-      >
-        <Flex gap={6} overflowX="auto" pb={6} align="flex-start">
-          {columns.map((column) => (
-            <DroppableColumn
-              key={column.id}
-              column={column}
-              users={users}
-              activeColumnId={activeColumnId}
-              taskTitle={taskTitle}
-              taskDescription={taskDescription}
-              taskAssigneeId={taskAssigneeId}
-              onSetActiveColumnId={setActiveColumnId}
-              onSetTaskTitle={setTaskTitle}
-              onSetTaskDescription={setTaskDescription}
-              onSetTaskAssigneeId={setTaskAssigneeId}
-              onCreateTask={handleCreateTask}
-              onDeleteTask={handleDeleteTask}
-              onUpdateTask={handleUpdateTask}
-            />
-          ))}
-        </Flex>
-      </DndContext>
-    </Box>
+      <TaskDetailModal
+        task={selectedTask}
+        onClose={() => setSelectedTask(null)}
+      />
+    </div>
   );
-};
+}
