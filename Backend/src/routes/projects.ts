@@ -34,11 +34,11 @@ router.get('/', async (req: AuthRequest, res) => {
 
     res.json(projects);
   } catch (error) {
-    res.status(500).json({ error: 'Projeler getirilirken sunucu hatası oluştu.' });
+    res.status(500).json({ error: 'Projeler listelenirken hata oluştu.' });
   }
 });
 
-// POST /api/projects - Yeni proje oluştur
+// POST /api/projects - Yeni proje
 router.post('/', async (req: AuthRequest, res) => {
   try {
     const { name, description } = req.body;
@@ -51,14 +51,13 @@ router.post('/', async (req: AuthRequest, res) => {
         ownerId: req.userId!,
       },
     });
-
     res.status(201).json(project);
   } catch (error) {
-    res.status(500).json({ error: 'Proje oluşturulurken sunucu hatası oluştu.' });
+    res.status(500).json({ error: 'Proje oluşturulurken hata oluştu.' });
   }
 });
 
-// GET /api/projects/:id - Tek proje ve bağlı panoları (Sahibi veya görevlisi erişebilir)
+// GET /api/projects/:id - Tek proje ve bağlı panoları
 router.get('/:id', async (req: AuthRequest, res) => {
   try {
     const id = req.params.id as string;
@@ -94,11 +93,11 @@ router.get('/:id', async (req: AuthRequest, res) => {
 
     res.json(project);
   } catch (error) {
-    res.status(500).json({ error: 'Proje detayları getirilirken sunucu hatası oluştu.' });
+    res.status(500).json({ error: 'Proje detayları getirilirken hata oluştu.' });
   }
 });
 
-// PUT /api/projects/:id - Proje güncelle (Yalnızca proje sahibi)
+// PUT /api/projects/:id - Proje güncelle (Yalnızca Proje Sahibi)
 router.put('/:id', async (req: AuthRequest, res) => {
   try {
     const id = req.params.id as string;
@@ -108,9 +107,7 @@ router.put('/:id', async (req: AuthRequest, res) => {
       where: { id, ownerId: req.userId },
     });
 
-    if (!project) {
-      return res.status(404).json({ error: 'Proje bulunamadı veya düzenleme yetkiniz yok.' });
-    }
+    if (!project) return res.status(404).json({ error: 'Proje bulunamadı veya yetkiniz yok.' });
 
     const updatedProject = await prisma.project.update({
       where: { id },
@@ -119,11 +116,11 @@ router.put('/:id', async (req: AuthRequest, res) => {
 
     res.json(updatedProject);
   } catch (error) {
-    res.status(500).json({ error: 'Proje güncellenirken sunucu hatası oluştu.' });
+    res.status(500).json({ error: 'Proje güncellenirken hata oluştu.' });
   }
 });
 
-// DELETE /api/projects/:id - Proje sil (Yalnızca proje sahibi)
+// DELETE /api/projects/:id - Proje sil (Yalnızca Proje Sahibi)
 router.delete('/:id', async (req: AuthRequest, res) => {
   try {
     const id = req.params.id as string;
@@ -132,14 +129,12 @@ router.delete('/:id', async (req: AuthRequest, res) => {
       where: { id, ownerId: req.userId },
     });
 
-    if (!project) {
-      return res.status(404).json({ error: 'Proje bulunamadı veya silme yetkiniz yok.' });
-    }
+    if (!project) return res.status(404).json({ error: 'Proje bulunamadı veya yetkiniz yok.' });
 
     await prisma.project.delete({ where: { id } });
     res.json({ message: 'Proje silindi.' });
   } catch (error) {
-    res.status(500).json({ error: 'Proje silinirken sunucu hatası oluştu.' });
+    res.status(500).json({ error: 'Proje silinirken hata oluştu.' });
   }
 });
 

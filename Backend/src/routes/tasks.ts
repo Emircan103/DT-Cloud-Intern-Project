@@ -5,7 +5,7 @@ import { authenticateToken, AuthRequest } from '../middleware/auth';
 const router = Router();
 router.use(authenticateToken);
 
-// PUT /api/tasks/:id - Görev güncelle (Proje Sahibi VEYA Görevin Kendisine Atandığı Kullanıcı)
+// PUT /api/tasks/:id - Görev güncelle (Başlık, Açıklama, Atanan Kişi)
 router.put('/tasks/:id', async (req: AuthRequest, res) => {
   try {
     const { id } = req.params as { id: string };
@@ -13,28 +13,52 @@ router.put('/tasks/:id', async (req: AuthRequest, res) => {
 
     const task = await prisma.task.findUnique({
       where: { id },
-      include: { column: { include: { board: { include: { project: true } } } } },
+      include: {
+        column: {
+          include: {
+            board: {
+              include: {
+                project: {
+                  include: {
+                    boards: {
+                      include: {
+                        columns: {
+                          include: { tasks: true },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
     });
 
-    const isOwner = task?.column.board.project.ownerId === req.userId;
-    const isAssignee = task?.assigneeId === req.userId;
+    if (!task) {
+      return res.status(404).json({ error: 'Görev bulunamadı.' });
+    }
 
-    // Yetki Kontrolü: Proje Sahibi VEYA Görevi Üstlenen Kişi
-    if (!task || (!isOwner && !isAssignee)) {
-      return res.status(404).json({ error: 'Görev bulunamadı veya yetkiniz yok.' });
+    const isOwner = task.column.board.project.ownerId === req.userId;
+    const isAssignee = task.assigneeId === req.userId;
+    const isMember = task.column.board.project.boards.some((b) =>
+      b.columns.some((c) => c.tasks.some((t) => t.assigneeId === req.userId))
+    );
+
+    if (!isOwner && !isAssignee && !isMember) {
+      return res.status(403).json({ error: 'Görevi güncelleme yetkiniz yok.' });
     }
 
     const updatedTask = await prisma.task.update({
       where: { id },
       data: {
-        title: title !== undefined ? title : task.title,
-        description: description !== undefined ? description : task.description,
+        title: title !== undefined ? title.trim() : task.title,
+        description: description !== undefined ? description.trim() : task.description,
         assigneeId: assigneeId !== undefined ? (assigneeId === '' ? null : assigneeId) : task.assigneeId,
       },
       include: {
-        assignee: {
-          select: { id: true, email: true },
-        },
+        assignee: { select: { id: true, email: true } },
       },
     });
 
@@ -45,7 +69,7 @@ router.put('/tasks/:id', async (req: AuthRequest, res) => {
   }
 });
 
-// PUT /api/tasks/:id/move - Görevi başka kolona veya sıraya taşı (Drag & Drop)
+// PUT /api/tasks/:id/move - Sürükle Bırak (Kolon veya Sıra Değişimi)
 router.put('/tasks/:id/move', async (req: AuthRequest, res) => {
   try {
     const { id } = req.params as { id: string };
@@ -55,34 +79,58 @@ router.put('/tasks/:id/move', async (req: AuthRequest, res) => {
       return res.status(400).json({ error: 'Hedef kolon ve sıra numarası zorunludur.' });
     }
 
-    // 1. Taşınacak görevin yetki kontrolü
     const task = await prisma.task.findUnique({
       where: { id },
-      include: { column: { include: { board: { include: { project: true } } } } },
+      include: {
+        column: {
+          include: {
+            board: {
+              include: {
+                project: {
+                  include: {
+                    boards: {
+                      include: {
+                        columns: {
+                          include: { tasks: true },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
     });
 
-    const isOwner = task?.column.board.project.ownerId === req.userId;
-    const isAssignee = task?.assigneeId === req.userId;
-
-    if (!task || (!isOwner && !isAssignee)) {
-      return res.status(404).json({ error: 'Görev bulunamadı veya yetkiniz yok.' });
+    if (!task) {
+      return res.status(404).json({ error: 'Görev bulunamadı.' });
     }
 
-    // 2. Hedef kolonun doğrulaması (Hedef kolon aynı panoda mı?)
+    const isOwner = task.column.board.project.ownerId === req.userId;
+    const isAssignee = task.assigneeId === req.userId;
+    const isMember = task.column.board.project.boards.some((b) =>
+      b.columns.some((c) => c.tasks.some((t) => t.assigneeId === req.userId))
+    );
+
+    if (!isOwner && !isAssignee && !isMember) {
+      return res.status(403).json({ error: 'Görevi taşıma yetkiniz yok.' });
+    }
+
     const destColumn = await prisma.column.findUnique({
       where: { id: destinationColumnId },
       include: { board: true },
     });
 
     if (!destColumn || destColumn.boardId !== task.column.boardId) {
-      return res.status(404).json({ error: 'Hedef kolon bulunamadı veya aynı panoya ait değil.' });
+      return res.status(400).json({ error: 'Hedef kolon aynı panoda olmalıdır.' });
     }
 
     const sourceColumnId = task.columnId;
     const isSameColumn = sourceColumnId === destinationColumnId;
 
     if (isSameColumn) {
-      // Aynı Kolon İçi Sıralama
       const colTasks = await prisma.task.findMany({
         where: { columnId: sourceColumnId },
         orderBy: { order: 'asc' },
@@ -104,7 +152,6 @@ router.put('/tasks/:id/move', async (req: AuthRequest, res) => {
         );
       }
     } else {
-      // Farklı Kolonlar Arası Taşıma
       const sourceTasks = await prisma.task.findMany({
         where: { columnId: sourceColumnId, id: { not: id } },
         orderBy: { order: 'asc' },
@@ -141,9 +188,7 @@ router.put('/tasks/:id/move', async (req: AuthRequest, res) => {
     const resultTask = await prisma.task.findUnique({
       where: { id },
       include: {
-        assignee: {
-          select: { id: true, email: true },
-        },
+        assignee: { select: { id: true, email: true } },
       },
     });
 
@@ -164,16 +209,13 @@ router.delete('/tasks/:id', async (req: AuthRequest, res) => {
       include: { column: { include: { board: { include: { project: true } } } } },
     });
 
-    // Silme işlemi yalnızca proje sahibine aittir
     if (!task || task.column.board.project.ownerId !== req.userId) {
       return res.status(404).json({ error: 'Görev bulunamadı veya silme yetkiniz yok.' });
     }
 
     const columnId = task.columnId;
 
-    await prisma.task.delete({
-      where: { id },
-    });
+    await prisma.task.delete({ where: { id } });
 
     const remainingTasks = await prisma.task.findMany({
       where: { columnId },
