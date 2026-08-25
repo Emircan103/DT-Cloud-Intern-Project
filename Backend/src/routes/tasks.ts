@@ -6,8 +6,8 @@ import { getIO } from '../lib/socket';
 const router = Router();
 router.use(authenticateToken);
 
-// Sahiplik Doğrulama: Proje sahibi VEYA göreve atanmış kullanıcı
-const verifyTaskOwnership = async (taskId: string, userId: string) => {
+// Sahiplik & Erişim Doğrulama: Proje sahibi VEYA göreve atanan kişi
+const verifyTaskAccess = async (taskId: string, userId: string) => {
   return await prisma.task.findFirst({
     where: {
       id: taskId,
@@ -18,19 +18,28 @@ const verifyTaskOwnership = async (taskId: string, userId: string) => {
     },
     include: {
       column: {
-        select: { boardId: true },
+        select: {
+          boardId: true,
+          board: {
+            select: {
+              project: {
+                select: { ownerId: true },
+              },
+            },
+          },
+        },
       },
     },
   });
 };
 
-// GET /api/tasks/:taskId/comments
+// GET /api/tasks/:taskId/comments -> Yorumları listele
 router.get('/:taskId/comments', async (req: AuthRequest, res: Response) => {
   const taskId = String(req.params.taskId);
   const userId = String(req.userId || '');
 
   try {
-    const task = await verifyTaskOwnership(taskId, userId);
+    const task = await verifyTaskAccess(taskId, userId);
     if (!task) {
       return res.status(404).json({ error: 'Görev bulunamadı veya erişim yetkiniz yok.' });
     }
@@ -48,7 +57,7 @@ router.get('/:taskId/comments', async (req: AuthRequest, res: Response) => {
   }
 });
 
-// POST /api/tasks/:taskId/comments
+// POST /api/tasks/:taskId/comments -> Yorum ekle
 router.post('/:taskId/comments', async (req: AuthRequest, res: Response) => {
   const taskId = String(req.params.taskId);
   const { content } = req.body;
@@ -59,7 +68,7 @@ router.post('/:taskId/comments', async (req: AuthRequest, res: Response) => {
   }
 
   try {
-    const task = await verifyTaskOwnership(taskId, userId);
+    const task = await verifyTaskAccess(taskId, userId);
     if (!task) {
       return res.status(404).json({ error: 'Görev bulunamadı veya yetkiniz yok.' });
     }
@@ -92,18 +101,17 @@ router.post('/:taskId/comments', async (req: AuthRequest, res: Response) => {
 
     return res.status(201).json(comment);
   } catch (error) {
-    console.error('Yorum eklenemedi:', error);
     return res.status(500).json({ error: 'Yorum eklenemedi.' });
   }
 });
 
-// GET /api/tasks/:taskId/activity
+// GET /api/tasks/:taskId/activity -> Aktivite geçmişi
 router.get('/:taskId/activity', async (req: AuthRequest, res: Response) => {
   const taskId = String(req.params.taskId);
   const userId = String(req.userId || '');
 
   try {
-    const task = await verifyTaskOwnership(taskId, userId);
+    const task = await verifyTaskAccess(taskId, userId);
     if (!task) {
       return res.status(404).json({ error: 'Görev bulunamadı veya yetkiniz yok.' });
     }
@@ -121,7 +129,7 @@ router.get('/:taskId/activity', async (req: AuthRequest, res: Response) => {
   }
 });
 
-// Kolona Görev Ekleme Fonksiyonu
+// Kolona Görev Ekleme Fonksiyonu (Proje Sahibi Doğrulamalı)
 const createTaskInColumn = async (req: AuthRequest, res: Response) => {
   const columnId = String(req.params.columnId);
   const { title, description, assigneeId } = req.body;
@@ -136,22 +144,23 @@ const createTaskInColumn = async (req: AuthRequest, res: Response) => {
   }
 
   try {
-    const column = await prisma.column.findFirst({
-      where: {
-        id: columnId,
+    const column = await prisma.column.findUnique({
+      where: { id: columnId },
+      include: {
         board: {
-          project: {
-            ownerId: userId,
+          include: {
+            project: true,
           },
         },
-      },
-      include: {
-        board: true,
       },
     });
 
     if (!column) {
-      return res.status(403).json({ error: 'Kolon bulunamadı veya bu projeye görev ekleme yetkiniz yok.' });
+      return res.status(404).json({ error: 'Kolon bulunamadı.' });
+    }
+
+    if (column.board.project.ownerId !== userId) {
+      return res.status(403).json({ error: 'Bu panoya görev ekleme yetkiniz yok. Yalnızca proje sahibi ekleyebilir.' });
     }
 
     const taskCount = await prisma.task.count({
@@ -205,14 +214,15 @@ router.post('/', async (req: AuthRequest, res: Response) => {
   }
 
   try {
-    const column = await prisma.column.findFirst({
-      where: {
-        id: String(columnId),
-        board: { project: { ownerId: userId } },
-      },
+    const column = await prisma.column.findUnique({
+      where: { id: String(columnId) },
+      include: { board: { include: { project: true } } },
     });
 
-    if (!column) return res.status(403).json({ error: 'Yetkisiz erişim veya kolon bulunamadı.' });
+    if (!column) return res.status(404).json({ error: 'Kolon bulunamadı.' });
+    if (column.board.project.ownerId !== userId) {
+      return res.status(403).json({ error: 'Yetkisiz erişim. Yalnızca proje sahibi görev oluşturabilir.' });
+    }
 
     const taskCount = await prisma.task.count({ where: { columnId: String(columnId) } });
 
@@ -252,31 +262,12 @@ const updateTaskHandler = async (req: AuthRequest, res: Response) => {
   if (!userId) return res.status(401).json({ error: 'Yetkisiz erişim.' });
 
   try {
-    const existingTask = await prisma.task.findUnique({
-      where: { id: taskId },
-      include: {
-        column: {
-          include: {
-            board: {
-              include: {
-                project: true,
-              },
-            },
-          },
-        },
-      },
-    });
-
+    const existingTask = await verifyTaskAccess(taskId, userId);
     if (!existingTask) {
-      return res.status(404).json({ error: 'Görev bulunamadı.' });
+      return res.status(404).json({ error: 'Görev bulunamadı veya yetkiniz yok.' });
     }
 
     const isProjectOwner = existingTask.column.board.project.ownerId === userId;
-    const isAssignee = existingTask.assigneeId === userId;
-
-    if (!isProjectOwner && !isAssignee) {
-      return res.status(403).json({ error: 'Bu görevi düzenleme yetkiniz yok.' });
-    }
 
     if (assigneeId !== undefined && assigneeId !== existingTask.assigneeId && !isProjectOwner) {
       return res.status(403).json({ error: 'Göreve atanan kişiyi yalnızca proje sahibi değiştirebilir.' });
@@ -330,7 +321,7 @@ router.put('/:id/move', async (req: AuthRequest, res: Response) => {
   }
 
   try {
-    const existingTask = await verifyTaskOwnership(taskId, userId);
+    const existingTask = await verifyTaskAccess(taskId, userId);
     if (!existingTask) return res.status(404).json({ error: 'Görev bulunamadı veya yetkiniz yok.' });
 
     const sourceColumnId = existingTask.columnId;
@@ -411,7 +402,7 @@ router.put('/:id/move', async (req: AuthRequest, res: Response) => {
   }
 });
 
-// DELETE /api/tasks/:id
+// DELETE /api/tasks/:id (Sadece Proje Sahibi)
 router.delete('/:id', async (req: AuthRequest, res: Response) => {
   const taskId = String(req.params.id);
   const userId = String(req.userId || '');
@@ -419,8 +410,27 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
   if (!userId) return res.status(401).json({ error: 'Yetkisiz erişim.' });
 
   try {
-    const task = await verifyTaskOwnership(taskId, userId);
-    if (!task) return res.status(404).json({ error: 'Görev bulunamadı veya yetkiniz yok.' });
+    const task = await prisma.task.findFirst({
+      where: {
+        id: taskId,
+        column: {
+          board: {
+            project: {
+              ownerId: userId,
+            },
+          },
+        },
+      },
+      include: {
+        column: {
+          select: { boardId: true },
+        },
+      },
+    });
+
+    if (!task) {
+      return res.status(403).json({ error: 'Görevi silme yetkiniz yok. Yalnızca proje sahibi silebilir.' });
+    }
 
     await prisma.activityLog.create({
       data: { action: 'TASK_DELETED', taskId, userId },

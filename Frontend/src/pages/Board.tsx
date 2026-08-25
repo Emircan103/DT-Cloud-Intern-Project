@@ -26,37 +26,57 @@ interface Column {
   tasks: Task[];
 }
 
+interface ProjectSummary {
+  id: string;
+  name: string;
+  ownerId: string;
+}
+
 interface BoardData {
   id: string;
   name: string;
   projectId: string;
+  project?: ProjectSummary;
   columns: Column[];
 }
 
 export function Board() {
   const { id: boardId } = useParams<{ id: string }>();
+
+  const getCurrentUserId = (): string | null => {
+    try {
+      const storedUser = localStorage.getItem('user');
+      if (storedUser) {
+        const parsed = JSON.parse(storedUser);
+        return parsed.id || null;
+      }
+    } catch {
+      return null;
+    }
+    return null;
+  };
+
+  const currentUserId = getCurrentUserId();
+
   const [board, setBoard] = useState<BoardData | null>(null);
+  const [projectOwnerId, setProjectOwnerId] = useState<string | null>(null);
   const [activeUsers, setActiveUsers] = useState<UserSummary[]>([]);
   const [allUsers, setAllUsers] = useState<UserSummary[]>([]);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Arama & Assignee Filtresi
   const [search, setSearch] = useState('');
   const [filterAssigneeId, setFilterAssigneeId] = useState('');
 
-  // Pano Başlığı Düzenleme
   const [isEditingBoardName, setIsEditingBoardName] = useState(false);
   const [boardNameInput, setBoardNameInput] = useState('');
 
-  // Hızlı Görev Ekleme Formu
   const [addingColumnId, setAddingColumnId] = useState<string | null>(null);
   const [newTitle, setNewTitle] = useState('');
   const [newDescription, setNewDescription] = useState('');
   const [newAssigneeId, setNewAssigneeId] = useState('');
   const [submittingTask, setSubmittingTask] = useState(false);
 
-  // Veri yükleme fonksiyonu
   const loadData = () => {
     if (!boardId) return;
     api.get(`/boards/${boardId}/columns`, {
@@ -66,13 +86,23 @@ export function Board() {
       },
     })
       .then((res) => {
+        const boardData = res.data.board;
         setBoard({
-          ...res.data.board,
-          columns: res.data.columns.map((col: Column) => ({
+          ...boardData,
+          columns: (res.data.columns || []).map((col: Column) => ({
             ...col,
             tasks: (col.tasks || []).sort((a: Task, b: Task) => a.order - b.order),
           })),
         });
+
+        if (boardData?.project?.ownerId) {
+          setProjectOwnerId(boardData.project.ownerId);
+        } else if (boardData?.projectId) {
+          api.get(`/projects/${boardData.projectId}`)
+            .then((pRes) => setProjectOwnerId(pRes.data.ownerId))
+            .catch(() => {});
+        }
+
         setLoading(false);
       })
       .catch((err) => {
@@ -93,13 +123,25 @@ export function Board() {
     })
       .then((res) => {
         if (!isMounted) return;
+        const boardData = res.data.board;
         setBoard({
-          ...res.data.board,
-          columns: res.data.columns.map((col: Column) => ({
+          ...boardData,
+          columns: (res.data.columns || []).map((col: Column) => ({
             ...col,
             tasks: (col.tasks || []).sort((a: Task, b: Task) => a.order - b.order),
           })),
         });
+
+        if (boardData?.project?.ownerId) {
+          setProjectOwnerId(boardData.project.ownerId);
+        } else if (boardData?.projectId) {
+          api.get(`/projects/${boardData.projectId}`)
+            .then((pRes) => {
+              if (isMounted) setProjectOwnerId(pRes.data.ownerId);
+            })
+            .catch(() => {});
+        }
+
         setLoading(false);
       })
       .catch((err) => {
@@ -113,7 +155,6 @@ export function Board() {
     };
   }, [boardId, search, filterAssigneeId]);
 
-  // Socket & Presence Bağlantısı
   useEffect(() => {
     if (!boardId) return;
 
@@ -146,7 +187,8 @@ export function Board() {
     };
   }, [boardId]);
 
-  // Pano Adı Güncelleme
+  const isOwner = !projectOwnerId || (currentUserId ? currentUserId === projectOwnerId : true);
+
   const handleUpdateBoardName = async () => {
     if (!boardNameInput.trim() || !board) return;
     try {
@@ -159,7 +201,6 @@ export function Board() {
     }
   };
 
-  // Yeni Görev Ekleme
   const handleSaveTask = async (columnId: string) => {
     if (!newTitle.trim() || submittingTask) return;
 
@@ -184,7 +225,6 @@ export function Board() {
     }
   };
 
-  // Drag & Drop Fonksiyonları
   const handleDragStart = (e: React.DragEvent, taskId: string, sourceColumnId: string) => {
     e.dataTransfer.setData('text/plain', JSON.stringify({ taskId, sourceColumnId }));
   };
@@ -225,7 +265,6 @@ export function Board() {
   };
 
   const executeMove = async (taskId: string, targetColumnId: string, newOrder: number) => {
-    // İyimser UI Güncellemesi
     setBoard((prev) => {
       if (!prev) return prev;
       let movingTask: Task | undefined;
@@ -280,14 +319,13 @@ export function Board() {
 
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#f1f5f9', display: 'flex', flexDirection: 'column', fontFamily: 'sans-serif' }}>
-      {/* Header */}
       <header style={{ backgroundColor: '#ffffff', borderBottom: '1px solid #e2e8f0', padding: '16px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
           <Link to={`/projects/${board.projectId}`} style={{ color: '#64748b', textDecoration: 'none', fontSize: '14px' }}>
             ← Projeye Dön
           </Link>
 
-          {isEditingBoardName ? (
+          {isEditingBoardName && isOwner ? (
             <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
               <input
                 type="text"
@@ -312,21 +350,22 @@ export function Board() {
           ) : (
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <h1 style={{ margin: 0, fontSize: '20px', fontWeight: 700, color: '#0f172a' }}>{board.name}</h1>
-              <button
-                onClick={() => {
-                  setBoardNameInput(board.name);
-                  setIsEditingBoardName(true);
-                }}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '14px', color: '#64748b' }}
-                title="Pano Adını Düzenle"
-              >
-                ✏️
-              </button>
+              {isOwner && (
+                <button
+                  onClick={() => {
+                    setBoardNameInput(board.name);
+                    setIsEditingBoardName(true);
+                  }}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '14px', color: '#64748b' }}
+                  title="Pano Adını Düzenle"
+                >
+                  ✏️
+                </button>
+              )}
             </div>
           )}
         </div>
 
-        {/* Search & Filter */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
           <input
             type="text"
@@ -350,7 +389,6 @@ export function Board() {
           </select>
         </div>
 
-        {/* Presence Indicator */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <span style={{ fontSize: '12px', color: '#64748b', fontWeight: 500 }}>Panodakiler:</span>
           <div style={{ display: 'flex', gap: '4px' }}>
@@ -379,7 +417,6 @@ export function Board() {
         </div>
       </header>
 
-      {/* Columns List */}
       <main style={{ flex: 1, padding: '24px', overflowX: 'auto', display: 'flex', gap: '20px', alignItems: 'flex-start' }}>
         {board.columns.map((column) => (
           <div
@@ -401,30 +438,31 @@ export function Board() {
               <span style={{ fontWeight: 700, fontSize: '14px', color: '#334155' }}>
                 {column.name} ({column.tasks.length})
               </span>
-              <button
-                onClick={() => {
-                  setAddingColumnId(column.id);
-                  setNewTitle('');
-                  setNewDescription('');
-                  setNewAssigneeId('');
-                }}
-                style={{
-                  backgroundColor: '#2563eb',
-                  color: '#ffffff',
-                  border: 'none',
-                  borderRadius: '4px',
-                  padding: '4px 10px',
-                  fontWeight: 700,
-                  fontSize: '13px',
-                  cursor: 'pointer',
-                }}
-              >
-                + Ekle
-              </button>
+              {isOwner && (
+                <button
+                  onClick={() => {
+                    setAddingColumnId(column.id);
+                    setNewTitle('');
+                    setNewDescription('');
+                    setNewAssigneeId('');
+                  }}
+                  style={{
+                    backgroundColor: '#2563eb',
+                    color: '#ffffff',
+                    border: 'none',
+                    borderRadius: '4px',
+                    padding: '4px 10px',
+                    fontWeight: 700,
+                    fontSize: '13px',
+                    cursor: 'pointer',
+                  }}
+                >
+                  + Ekle
+                </button>
+              )}
             </div>
 
-            {/* Quick Add Form */}
-            {addingColumnId === column.id && (
+            {addingColumnId === column.id && isOwner && (
               <div style={{ backgroundColor: '#ffffff', padding: '12px', borderRadius: '6px', marginBottom: '12px', border: '1px solid #cbd5e1' }}>
                 <input
                   type="text"
@@ -480,7 +518,6 @@ export function Board() {
               </div>
             )}
 
-            {/* Task Cards */}
             <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '10px' }}>
               {column.tasks.map((task) => (
                 <div
@@ -519,9 +556,9 @@ export function Board() {
         ))}
       </main>
 
-      {/* Task Modal */}
       <TaskDetailModal
         task={selectedTask}
+        isOwner={isOwner}
         onClose={() => setSelectedTask(null)}
         onTaskUpdated={() => loadData()}
         onTaskDeleted={() => {
