@@ -6,122 +6,127 @@ const router = Router();
 router.use(authenticateToken);
 
 // GET /api/boards/:id/columns - Panoya ait kolonları ve görevleri getir
-router.get('/:id/columns', async (req: AuthRequest, res) => {
-  const { id } = req.params as { id: string };
-  const { search, assigneeId } = req.query;
+router.get('/boards/:id/columns', async (req: AuthRequest, res) => {
+  try {
+    const boardId = req.params.id as string;
+    const { search, assigneeId } = req.query;
 
-  const board = await prisma.board.findUnique({
-    where: { id },
-    include: { project: true },
-  });
+    // Panoya erişim kontrolü (Proje sahibi VEYA panoda görevi olan kişi)
+    const board = await prisma.board.findFirst({
+      where: {
+        id: boardId,
+        OR: [
+          { project: { ownerId: req.userId } },
+          {
+            columns: {
+              some: {
+                tasks: {
+                  some: { assigneeId: req.userId },
+                },
+              },
+            },
+          },
+        ],
+      },
+    });
 
-  // Yetki Zinciri Kontrolü (Board -> Project -> User)
-  if (!board || board.project.ownerId !== req.userId) {
-    return res.status(404).json({ error: 'Pano bulunamadı veya yetkiniz yok.' });
-  }
+    if (!board) {
+      return res.status(404).json({ error: 'Pano bulunamadı veya erişim yetkiniz yok.' });
+    }
 
-  const taskWhere: Record<string, unknown> = {};
+    // Filtreleme koşulları
+    const taskWhere: any = {};
+    if (search) {
+      taskWhere.OR = [
+        { title: { contains: String(search), mode: 'insensitive' } },
+        { description: { contains: String(search), mode: 'insensitive' } },
+      ];
+    }
+    if (assigneeId) {
+      taskWhere.assigneeId = String(assigneeId);
+    }
 
-  if (typeof search === 'string' && search.trim() !== '') {
-    taskWhere.title = {
-      contains: search.trim(),
-      mode: 'insensitive',
-    };
-  }
-
-  if (typeof assigneeId === 'string' && assigneeId.trim() !== '') {
-    taskWhere.assigneeId = assigneeId.trim();
-  }
-
-  const columns = await prisma.column.findMany({
-    where: { boardId: id },
-    orderBy: { order: 'asc' },
-    include: {
-      tasks: {
-        where: taskWhere,
-        orderBy: { order: 'asc' },
-        include: {
-          assignee: {
-            select: { id: true, email: true },
+    const columns = await prisma.column.findMany({
+      where: { boardId },
+      orderBy: { order: 'asc' },
+      include: {
+        tasks: {
+          where: taskWhere,
+          orderBy: { order: 'asc' },
+          include: {
+            assignee: {
+              select: { id: true, email: true },
+            },
           },
         },
       },
-    },
-  });
+    });
 
-  res.json(columns);
-});
-
-// POST /api/boards/:id/columns - Panoya yeni kolon ekle
-
-// Bu yapı frontend tarafında bir anlam ifade etmiyor
-// çünkü sabit sayıda kolon oluşturuluyor ve frontend tarafında ekleme yapılacak
-// bir yapı yok. Ancak backend tarafında kolon ekleme yeteneği sağlamak ve CRUD işlemlerini
-// desteklemek için bu endpoint oluşturuldu. Bu sayede ileride frontend tarafında kolon ekleme özelliği eklenebilir.
-router.post('/:id/columns', async (req: AuthRequest, res) => {
-  const { id } = req.params as { id: string };
-  const { name } = req.body;
-
-  if (!name) {
-    return res.status(400).json({ error: 'Kolon adı zorunludur.' });
+    res.json(columns);
+  } catch (error) {
+    console.error('Kolonlar getirilirken hata:', error);
+    res.status(500).json({ error: 'Kolonlar getirilirken sunucu hatası oluştu.' });
   }
-
-  const board = await prisma.board.findUnique({
-    where: { id },
-    include: { project: true },
-  });
-
-  // Yetki Zinciri Kontrolü
-  if (!board || board.project.ownerId !== req.userId) {
-    return res.status(404).json({ error: 'Pano bulunamadı veya yetkiniz yok.' });
-  }
-
-  const columnCount = await prisma.column.count({
-    where: { boardId: id },
-  });
-
-  const column = await prisma.column.create({
-    data: {
-      name,
-      order: columnCount,
-      boardId: id,
-    },
-  });
-
-  res.status(201).json(column);
 });
 
 // POST /api/columns/:columnId/tasks - Kolona yeni görev ekle
 router.post('/columns/:columnId/tasks', async (req: AuthRequest, res) => {
   try {
-    const { columnId } = req.params as { columnId: string };
+    const columnId = req.params.columnId as string;
     const { title, description, assigneeId } = req.body;
 
     if (!title || !title.trim()) {
       return res.status(400).json({ error: 'Görev başlığı zorunludur.' });
     }
 
+    // Kolonun ve projenin kontrolü
     const column = await prisma.column.findUnique({
       where: { id: columnId },
-      include: { board: { include: { project: true } } },
+      include: {
+        board: {
+          include: {
+            project: {
+              include: {
+                boards: {
+                  include: {
+                    columns: {
+                      include: { tasks: true },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
     });
 
-    // Yetki Zinciri Kontrolü (Column -> Board -> Project -> User)
-    if (!column || column.board.project.ownerId !== req.userId) {
-      return res.status(404).json({ error: 'Kolon bulunamadı veya yetkiniz yok.' });
+    if (!column) {
+      return res.status(404).json({ error: 'Kolon bulunamadı.' });
     }
 
+    // Proje sahibi VEYA bu projede atanmış bir görevi olan kullanıcı ekleyebilir
+    const isOwner = column.board.project.ownerId === req.userId;
+    const hasAssignedTask = column.board.project.boards.some((b) =>
+      b.columns.some((c) => c.tasks.some((t) => t.assigneeId === req.userId))
+    );
+
+    if (!isOwner && !hasAssignedTask) {
+      return res.status(403).json({ error: 'Bu panoya görev ekleme yetkiniz yok.' });
+    }
+
+    // Kolondaki mevcut görev sayısına göre order belirle
     const taskCount = await prisma.task.count({
       where: { columnId },
     });
 
-    const task = await prisma.task.create({
+    const newTask = await prisma.task.create({
       data: {
         title: title.trim(),
-        description: description ? description.trim() : null,
+        description: description ? description.trim() : '',
         order: taskCount,
         columnId,
-        assigneeId: assigneeId && assigneeId.trim() !== '' ? assigneeId.trim() : null,
+        assigneeId: assigneeId && assigneeId.trim() !== '' ? assigneeId : null,
       },
       include: {
         assignee: {
@@ -130,94 +135,11 @@ router.post('/columns/:columnId/tasks', async (req: AuthRequest, res) => {
       },
     });
 
-    res.status(201).json(task);
+    res.status(201).json(newTask);
   } catch (error) {
     console.error('Görev ekleme hatası:', error);
     res.status(500).json({ error: 'Görev eklenirken sunucu hatası oluştu.' });
   }
-});
-
-// POST /api/boards - Yeni pano oluştur
-router.post('/', async (req: AuthRequest, res) => {
-  const { name, projectId } = req.body;
-
-  if (!name || !projectId) {
-    return res.status(400).json({ error: 'Pano adı ve proje ID zorunludur.' });
-  }
-
-  const project = await prisma.project.findUnique({
-    where: { id: projectId },
-  });
-
-  // Yetki Zinciri Kontrolü (Project -> User)
-  if (!project || project.ownerId !== req.userId) {
-    return res.status(404).json({ error: 'Proje bulunamadı veya yetkiniz yok.' });
-  }
-
-  const board = await prisma.board.create({
-    data: {
-      name,
-      projectId,
-      columns: {
-        create: [
-          { name: 'To Do', order: 0 },
-          { name: 'In Progress', order: 1 },
-          { name: 'Done', order: 2 },
-        ],
-      },
-    },
-    include: {
-      columns: true,
-    },
-  });
-
-  res.status(201).json(board);
-});
-
-// PUT /api/boards/:id - Pano adı güncelle
-router.put('/:id', async (req: AuthRequest, res) => {
-  const { id } = req.params as { id: string };
-  const { name } = req.body;
-
-  if (!name) {
-    return res.status(400).json({ error: 'Pano adı zorunludur.' });
-  }
-
-  const board = await prisma.board.findUnique({
-    where: { id },
-    include: { project: true },
-  });
-
-  if (!board || board.project.ownerId !== req.userId) {
-    return res.status(404).json({ error: 'Pano bulunamadı veya yetkiniz yok.' });
-  }
-
-  const updatedBoard = await prisma.board.update({
-    where: { id },
-    data: { name },
-  });
-
-  res.json(updatedBoard);
-});
-
-// DELETE /api/boards/:id - Pano sil
-router.delete('/:id', async (req: AuthRequest, res) => {
-  const { id } = req.params as { id: string };
-
-  const board = await prisma.board.findUnique({
-    where: { id },
-    include: { project: true },
-  });
-
-  if (!board || board.project.ownerId !== req.userId) {
-    return res.status(404).json({ error: 'Pano bulunamadı veya yetkiniz yok.' });
-  }
-
-  await prisma.board.delete({
-    where: { id },
-  });
-
-  res.json({ message: 'Pano başarıyla silindi.' });
 });
 
 export default router;

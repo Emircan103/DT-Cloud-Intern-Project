@@ -5,7 +5,7 @@ import { authenticateToken, AuthRequest } from '../middleware/auth';
 const router = Router();
 router.use(authenticateToken);
 
-// PUT /api/tasks/:id - Görev güncelle
+// PUT /api/tasks/:id - Görev güncelle (Proje Sahibi VEYA Görevin Kendisine Atandığı Kullanıcı)
 router.put('/tasks/:id', async (req: AuthRequest, res) => {
   try {
     const { id } = req.params as { id: string };
@@ -16,8 +16,11 @@ router.put('/tasks/:id', async (req: AuthRequest, res) => {
       include: { column: { include: { board: { include: { project: true } } } } },
     });
 
-    // Yetki Zinciri Kontrolü
-    if (!task || task.column.board.project.ownerId !== req.userId) {
+    const isOwner = task?.column.board.project.ownerId === req.userId;
+    const isAssignee = task?.assigneeId === req.userId;
+
+    // Yetki Kontrolü: Proje Sahibi VEYA Görevi Üstlenen Kişi
+    if (!task || (!isOwner && !isAssignee)) {
       return res.status(404).json({ error: 'Görev bulunamadı veya yetkiniz yok.' });
     }
 
@@ -26,7 +29,7 @@ router.put('/tasks/:id', async (req: AuthRequest, res) => {
       data: {
         title: title !== undefined ? title : task.title,
         description: description !== undefined ? description : task.description,
-        assigneeId: assigneeId !== undefined ? (assigneeId === "" ? null : assigneeId) : task.assigneeId,
+        assigneeId: assigneeId !== undefined ? (assigneeId === '' ? null : assigneeId) : task.assigneeId,
       },
       include: {
         assignee: {
@@ -58,18 +61,21 @@ router.put('/tasks/:id/move', async (req: AuthRequest, res) => {
       include: { column: { include: { board: { include: { project: true } } } } },
     });
 
-    if (!task || task.column.board.project.ownerId !== req.userId) {
+    const isOwner = task?.column.board.project.ownerId === req.userId;
+    const isAssignee = task?.assigneeId === req.userId;
+
+    if (!task || (!isOwner && !isAssignee)) {
       return res.status(404).json({ error: 'Görev bulunamadı veya yetkiniz yok.' });
     }
 
-    // 2. Hedef kolonun yetki kontrolü
+    // 2. Hedef kolonun doğrulaması (Hedef kolon aynı panoda mı?)
     const destColumn = await prisma.column.findUnique({
       where: { id: destinationColumnId },
-      include: { board: { include: { project: true } } },
+      include: { board: true },
     });
 
-    if (!destColumn || destColumn.board.project.ownerId !== req.userId) {
-      return res.status(404).json({ error: 'Hedef kolon bulunamadı veya yetkiniz yok.' });
+    if (!destColumn || destColumn.boardId !== task.column.boardId) {
+      return res.status(404).json({ error: 'Hedef kolon bulunamadı veya aynı panoya ait değil.' });
     }
 
     const sourceColumnId = task.columnId;
@@ -148,7 +154,7 @@ router.put('/tasks/:id/move', async (req: AuthRequest, res) => {
   }
 });
 
-// DELETE /api/tasks/:id - Görev sil
+// DELETE /api/tasks/:id - Görev sil (Yalnızca Proje Sahibi)
 router.delete('/tasks/:id', async (req: AuthRequest, res) => {
   try {
     const { id } = req.params as { id: string };
@@ -158,9 +164,9 @@ router.delete('/tasks/:id', async (req: AuthRequest, res) => {
       include: { column: { include: { board: { include: { project: true } } } } },
     });
 
-    // Yetki Zinciri Kontrolü
+    // Silme işlemi yalnızca proje sahibine aittir
     if (!task || task.column.board.project.ownerId !== req.userId) {
-      return res.status(404).json({ error: 'Görev bulunamadı veya yetkiniz yok.' });
+      return res.status(404).json({ error: 'Görev bulunamadı veya silme yetkiniz yok.' });
     }
 
     const columnId = task.columnId;
