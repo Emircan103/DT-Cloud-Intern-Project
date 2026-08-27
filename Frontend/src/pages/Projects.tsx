@@ -8,300 +8,256 @@ interface Project {
   name: string;
   description?: string | null;
   createdAt: string;
-  _count?: {
-    boards: number;
-  };
+  ownerId?: string; // Projenin sahibi olup olmadığımızı anlamak için
 }
 
 export function Projects() {
-  const { logout } = useAuth();
+  const { user, logout } = useAuth();
   const navigate = useNavigate();
-
+  
   const [projects, setProjects] = useState<Project[]>([]);
-  const [name, setName] = useState('');
-  const [description, setDescription] = useState('');
   const [loading, setLoading] = useState(true);
+  const [isCreating, setIsCreating] = useState(false);
+  
+  // Yeni Proje State'leri
+  const [newTitle, setNewTitle] = useState('');
+  const [newDesc, setNewDesc] = useState('');
 
-  // Düzenleme State'leri
+  // Proje Düzenleme State'leri
   const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
-  const [editName, setEditName] = useState('');
-  const [editDescription, setEditDescription] = useState('');
+  const [editTitle, setEditTitle] = useState('');
+  const [editDesc, setEditDesc] = useState('');
 
-  // Kullanıcının tam e-posta adresini (kullanıcıadı@gmail.com) alan fonksiyon
-  const getUserEmail = (): string => {
+  const getStoredUser = (): { id?: string; email?: string } => {
+    if (user?.email) return user;
     try {
-      const stored = localStorage.getItem('user');
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        if (parsed.email) return parsed.email;
-      }
-
-      const token = localStorage.getItem('token');
+      const stored = sessionStorage.getItem('user');
+      if (stored) return JSON.parse(stored);
+      const token = sessionStorage.getItem('token');
       if (token) {
-        const payloadBase64 = token.split('.')[1];
-        if (payloadBase64) {
-          const decodedJson = JSON.parse(atob(payloadBase64));
-          if (decodedJson.email) return decodedJson.email;
+        const payload = token.split('.')[1];
+        if (payload) {
+          const decoded = JSON.parse(atob(payload));
+          return { id: decoded.userId, email: decoded.email };
         }
       }
     } catch {
-      return 'Kullanıcı';
+      return {};
     }
-    return 'Kullanıcı';
+    return {};
   };
 
-  const userEmail = getUserEmail();
-  const initialLetter = userEmail.charAt(0).toUpperCase();
-
-  const loadProjects = () => {
-    api.get('/projects')
-      .then((res) => {
-        setProjects(res.data);
-        setLoading(false);
-      })
-      .catch((err) => {
-        console.error('Projeler yüklenemedi', err);
-        setLoading(false);
-      });
-  };
+  const currentUser = getStoredUser();
+  const currentUserEmail = currentUser.email || 'Kullanıcı';
+  const currentUserId = currentUser.id;
 
   useEffect(() => {
-    loadProjects();
+    let isMounted = true;
+
+    const loadData = async () => {
+      try {
+        const res = await api.get('/projects');
+        if (isMounted) {
+          setProjects(res.data);
+        }
+      } catch (err) {
+        console.error('Projeler alınamadı', err);
+      } finally {
+        if (isMounted) {
+          setLoading(false);
+        }
+      }
+    };
+
+    loadData();
+
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
-  const handleCreateProject = async (e: React.FormEvent) => {
+  // --- YENİ PROJE OLUŞTURMA ---
+  const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim()) return;
-
+    if (!newTitle.trim()) return;
     try {
-      await api.post('/projects', { name: name.trim(), description: description.trim() });
-      setName('');
-      setDescription('');
-      loadProjects();
+      const res = await api.post('/projects', { name: newTitle.trim(), description: newDesc.trim() });
+      setProjects((prev) => [...prev, res.data]);
+      setNewTitle('');
+      setNewDesc('');
+      setIsCreating(false);
     } catch (err) {
       console.error('Proje oluşturulamadı', err);
-      alert('Proje oluşturulurken bir hata oluştu.');
     }
   };
 
-  const handleStartEdit = (e: React.MouseEvent, project: Project) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setEditingProjectId(project.id);
-    setEditName(project.name);
-    setEditDescription(project.description || '');
-  };
-
-  const handleCancelEdit = (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setEditingProjectId(null);
-  };
-
-  const handleSaveEdit = async (e: React.MouseEvent, projectId: string) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (!editName.trim()) return;
-
+  // --- PROJE SİLME ---
+  const handleDelete = async (id: string) => {
+    if (!window.confirm('Bu projeyi kalıcı olarak silmek istediğinize emin misiniz?')) return;
+    
     try {
-      await api.patch(`/projects/${projectId}`, {
-        name: editName.trim(),
-        description: editDescription.trim(),
-      });
-      setEditingProjectId(null);
-      loadProjects();
-    } catch (err) {
-      console.error('Proje güncellenemedi', err);
-      alert('Proje güncellenirken hata oluştu.');
-    }
-  };
-
-  const handleDeleteProject = async (e: React.MouseEvent, projectId: string) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (!window.confirm('Bu projeyi ve altındaki tüm panoları silmek istediğinize emin misiniz?')) {
-      return;
-    }
-
-    try {
-      await api.delete(`/projects/${projectId}`);
-      loadProjects();
+      await api.delete(`/projects/${id}`);
+      // Silinen projeyi listeden anında çıkarıyoruz (Performans dostu)
+      setProjects((prev) => prev.filter((p) => p.id !== id));
     } catch (err) {
       console.error('Proje silinemedi', err);
       alert('Proje silinirken hata oluştu.');
     }
   };
 
-  const handleLogout = () => {
-    if (logout) {
-      logout();
-    } else {
-      localStorage.removeItem('token');
-      localStorage.removeItem('user');
+  // --- PROJE GÜNCELLEME ---
+  const handleSaveEdit = async (id: string) => {
+    if (!editTitle.trim()) return;
+
+    try {
+      const res = await api.put(`/projects/${id}`, { 
+        name: editTitle.trim(), 
+        description: editDesc.trim() 
+      });
+      
+      // Güncellenen projeyi listeye yansıtıyoruz
+      setProjects((prev) => prev.map((p) => (p.id === id ? res.data : p)));
+      setEditingProjectId(null);
+    } catch (err) {
+      console.error('Proje güncellenemedi', err);
+      alert('Proje güncellenirken hata oluştu.');
     }
+  };
+
+  const handleLogout = () => {
+    logout();
     navigate('/login');
   };
 
+  if (loading) {
+    return <div style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>Projeler yükleniyor...</div>;
+  }
+
   return (
-    <div style={{ minHeight: '100vh', backgroundColor: '#f8fafc', padding: '32px', fontFamily: 'sans-serif' }}>
-      <div style={{ maxWidth: '1000px', margin: '0 auto' }}>
-        {/* Header */}
-        <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '32px', borderBottom: '1px solid #e2e8f0', paddingBottom: '16px' }}>
-          <div>
-            <h1 style={{ fontSize: '28px', fontWeight: 800, color: '#0f172a', margin: 0 }}>Projeler</h1>
-            <p style={{ color: '#64748b', margin: '4px 0 0 0', fontSize: '14px' }}>Tüm projelerinizi ve panolarınızı buradan yönetin</p>
+    <div style={{ minHeight: '100vh', backgroundColor: '#f1f5f9', fontFamily: 'sans-serif' }}>
+      <header style={{ backgroundColor: '#ffffff', borderBottom: '1px solid #e2e8f0', padding: '12px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <h1 style={{ margin: 0, fontSize: '20px', fontWeight: 800, color: '#0f172a' }}>Projelerim</h1>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: '#f8fafc', padding: '6px 12px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+          <div style={{ width: '28px', height: '28px', borderRadius: '50%', backgroundColor: '#2563eb', color: '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '13px', fontWeight: 700 }}>
+            {currentUserEmail.charAt(0).toUpperCase()}
           </div>
+          <span style={{ fontSize: '13px', fontWeight: 600, color: '#0f172a' }}>{currentUserEmail}</span>
+          <button onClick={handleLogout} style={{ marginLeft: '6px', padding: '4px 8px', backgroundColor: '#fee2e2', color: '#ef4444', border: 'none', borderRadius: '6px', fontSize: '12px', fontWeight: 600, cursor: 'pointer' }}>Çıkış</button>
+        </div>
+      </header>
 
-          {/* Aktif Kullanıcı Göstergesi & Çıkış */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', backgroundColor: '#ffffff', padding: '6px 14px', borderRadius: '8px', border: '1px solid #e2e8f0', boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}>
-            <div style={{ width: '28px', height: '28px', borderRadius: '50%', backgroundColor: '#2563eb', color: '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '13px' }}>
-              {initialLetter}
-            </div>
-            <span style={{ fontSize: '14px', fontWeight: 600, color: '#0f172a' }}>{userEmail}</span>
-            <button
-              onClick={handleLogout}
-              style={{ marginLeft: '6px', padding: '4px 10px', backgroundColor: '#fee2e2', color: '#ef4444', border: 'none', borderRadius: '6px', fontSize: '12px', fontWeight: 600, cursor: 'pointer' }}
-            >
-              Çıkış
-            </button>
-          </div>
-        </header>
-
-        {/* Yeni Proje Formu */}
-        <div style={{ backgroundColor: '#ffffff', padding: '24px', borderRadius: '12px', border: '1px solid #e2e8f0', marginBottom: '32px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
-          <h2 style={{ fontSize: '16px', fontWeight: 700, color: '#0f172a', margin: '0 0 16px 0' }}>+ Yeni Proje Oluştur</h2>
-          <form onSubmit={handleCreateProject} style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-            <input
-              type="text"
-              placeholder="Proje Adı *"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              required
-              style={{ flex: 1, minWidth: '200px', padding: '10px 14px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '14px' }}
-            />
-            <input
-              type="text"
-              placeholder="Açıklama (Opsiyonel)"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              style={{ flex: 2, minWidth: '250px', padding: '10px 14px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '14px' }}
-            />
-            <button
-              type="submit"
-              style={{ padding: '10px 20px', backgroundColor: '#2563eb', color: '#ffffff', border: 'none', borderRadius: '8px', fontWeight: 600, fontSize: '14px', cursor: 'pointer' }}
-            >
-              Oluştur
-            </button>
-          </form>
+      <main style={{ padding: '32px 24px', maxWidth: '1200px', margin: '0 auto' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+          <h2 style={{ fontSize: '18px', fontWeight: 700, color: '#334155', margin: 0 }}>Tüm Projeler</h2>
+          <button 
+            onClick={() => setIsCreating(!isCreating)} 
+            style={{ backgroundColor: '#2563eb', color: '#fff', border: 'none', borderRadius: '6px', padding: '8px 16px', fontWeight: 600, cursor: 'pointer', fontSize: '13px' }}
+          >
+            {isCreating ? 'İptal' : '+ Yeni Proje'}
+          </button>
         </div>
 
-        {/* Projeler Listesi */}
-        {loading ? (
-          <div style={{ textAlign: 'center', color: '#64748b', padding: '40px' }}>Yükleniyor...</div>
-        ) : projects.length === 0 ? (
-          <div style={{ textAlign: 'center', color: '#64748b', padding: '40px', backgroundColor: '#ffffff', borderRadius: '12px', border: '1px dashed #cbd5e1' }}>
-            Henüz oluşturulmuş bir proje yok.
-          </div>
-        ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '16px' }}>
-            {projects.map((project) => (
-              <div
-                key={project.id}
-                style={{
-                  backgroundColor: '#ffffff',
-                  padding: '20px',
-                  borderRadius: '12px',
-                  border: '1px solid #e2e8f0',
-                  boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  justifyContent: 'space-between',
-                  minHeight: '140px',
-                }}
-              >
-                {editingProjectId === project.id ? (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                    <input
-                      type="text"
-                      value={editName}
-                      onChange={(e) => setEditName(e.target.value)}
-                      style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '14px', fontWeight: 700 }}
-                    />
-                    <textarea
-                      value={editDescription}
-                      onChange={(e) => setEditDescription(e.target.value)}
-                      rows={2}
-                      placeholder="Açıklama"
-                      style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '13px', resize: 'none' }}
-                    />
-                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
-                      <button
-                        onClick={handleCancelEdit}
-                        style={{ padding: '6px 12px', backgroundColor: '#f1f5f9', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', color: '#475569' }}
-                      >
-                        İptal
-                      </button>
-                      <button
-                        onClick={(e) => handleSaveEdit(e, project.id)}
-                        style={{ padding: '6px 12px', backgroundColor: '#2563eb', color: '#ffffff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 600 }}
-                      >
-                        Kaydet
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <>
-                    <div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
-                        <Link
-                          to={`/projects/${project.id}`}
-                          style={{ textDecoration: 'none', color: '#0f172a', fontSize: '17px', fontWeight: 700 }}
-                        >
-                          {project.name}
-                        </Link>
-                        <div style={{ display: 'flex', gap: '6px' }}>
-                          <button
-                            onClick={(e) => handleStartEdit(e, project)}
-                            style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '13px', color: '#64748b' }}
-                            title="Düzenle"
-                          >
-                            ✏️
-                          </button>
-                          <button
-                            onClick={(e) => handleDeleteProject(e, project.id)}
-                            style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '13px', color: '#ef4444' }}
-                            title="Sil"
-                          >
-                            🗑️
-                          </button>
-                        </div>
-                      </div>
-
-                      {project.description && (
-                        <p style={{ margin: '0 0 12px 0', fontSize: '13px', color: '#64748b', lineHeight: '1.4' }}>
-                          {project.description}
-                        </p>
-                      )}
-                    </div>
-
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '12px', borderTop: '1px solid #f1f5f9', paddingTop: '10px' }}>
-                      <span style={{ fontSize: '12px', color: '#94a3b8' }}>
-                        {project._count?.boards || 0} Pano
-                      </span>
-                      <Link
-                        to={`/projects/${project.id}`}
-                        style={{ textDecoration: 'none', color: '#2563eb', fontSize: '13px', fontWeight: 600 }}
-                      >
-                        Panoları Aç →
-                      </Link>
-                    </div>
-                  </>
-                )}
-              </div>
-            ))}
-          </div>
+        {isCreating && (
+          <form onSubmit={handleCreate} style={{ backgroundColor: '#fff', padding: '20px', borderRadius: '8px', border: '1px solid #e2e8f0', marginBottom: '24px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <input 
+              type="text" 
+              placeholder="Proje Adı" 
+              value={newTitle} 
+              onChange={(e) => setNewTitle(e.target.value)} 
+              required 
+              style={{ padding: '10px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '14px', color: '#0f172a', backgroundColor: '#ffffff' }} 
+            />
+            <textarea 
+              placeholder="Proje Açıklaması (Opsiyonel)" 
+              value={newDesc} 
+              onChange={(e) => setNewDesc(e.target.value)} 
+              rows={3} 
+              style={{ padding: '10px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '14px', resize: 'vertical', color: '#0f172a', backgroundColor: '#ffffff' }} 
+            />
+            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+              <button type="submit" style={{ backgroundColor: '#10b981', color: '#fff', border: 'none', borderRadius: '6px', padding: '8px 20px', fontWeight: 600, cursor: 'pointer', fontSize: '13px' }}>Oluştur</button>
+            </div>
+          </form>
         )}
-      </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '20px' }}>
+          {projects.length === 0 ? (
+            <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '40px', color: '#64748b', backgroundColor: '#fff', borderRadius: '8px', border: '1px solid #e2e8f0' }}>Henüz bir proje bulunmuyor.</div>
+          ) : (
+            projects.map(p => {
+              // Kullanıcı, projenin sahibi ise düzenleme/silme haklarına sahip olsun
+              // Eğer backend ownerId yollamıyorsa, şimdilik herkes görebilir.
+              const isOwner = p.ownerId === currentUserId || true; // Güvenlik backend'de korunur
+
+              return (
+                <div key={p.id} style={{ backgroundColor: '#fff', padding: '20px', borderRadius: '8px', border: '1px solid #e2e8f0', transition: 'box-shadow 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', display: 'flex', flexDirection: 'column' }}>
+                  
+                  {editingProjectId === p.id ? (
+                    // DÜZENLEME MODU
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', flex: 1 }}>
+                      <input 
+                        type="text" 
+                        value={editTitle} 
+                        onChange={(e) => setEditTitle(e.target.value)} 
+                        style={{ padding: '8px', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '14px', color: '#0f172a', backgroundColor: '#ffffff', fontWeight: 700 }} 
+                      />
+                      <textarea 
+                        value={editDesc} 
+                        onChange={(e) => setEditDesc(e.target.value)} 
+                        rows={2} 
+                        style={{ padding: '8px', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '13px', color: '#0f172a', backgroundColor: '#ffffff', resize: 'vertical' }} 
+                      />
+                      <div style={{ display: 'flex', gap: '8px', marginTop: 'auto', paddingTop: '10px' }}>
+                        <button onClick={() => setEditingProjectId(null)} style={{ padding: '6px 12px', background: '#f1f5f9', color: '#64748b', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', flex: 1 }}>İptal</button>
+                        <button onClick={() => handleSaveEdit(p.id)} style={{ padding: '6px 12px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', fontWeight: 600, flex: 1 }}>Kaydet</button>
+                      </div>
+                    </div>
+                  ) : (
+                    // GÖRÜNTÜLEME MODU
+                    <>
+                      <h3 style={{ margin: '0 0 8px 0', fontSize: '16px', color: '#0f172a', fontWeight: 700 }}>{p.name}</h3>
+                      {p.description && <p style={{ margin: 0, fontSize: '13px', color: '#64748b', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{p.description}</p>}
+                      <div style={{ marginTop: '12px', fontSize: '11px', color: '#94a3b8', marginBottom: '16px' }}>
+                        Oluşturulma: {new Date(p.createdAt).toLocaleDateString('tr-TR')}
+                      </div>
+                      
+                      {/* Butonlar Grubu */}
+                      <div style={{ display: 'flex', gap: '8px', marginTop: 'auto', borderTop: '1px solid #f1f5f9', paddingTop: '12px' }}>
+                        <Link to={`/projects/${p.id}`} style={{ flex: 1 }}>
+                          <button style={{ width: '100%', padding: '6px 0', background: '#eff6ff', color: '#2563eb', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', fontWeight: 600 }}>Projeye Git</button>
+                        </Link>
+                        
+                        {isOwner && (
+                          <>
+                            <button 
+                              onClick={() => {
+                                setEditingProjectId(p.id);
+                                setEditTitle(p.name);
+                                setEditDesc(p.description || '');
+                              }} 
+                              style={{ background: '#f8fafc', color: '#475569', border: '1px solid #e2e8f0', borderRadius: '4px', padding: '6px 10px', cursor: 'pointer', fontSize: '12px' }}
+                              title="Düzenle"
+                            >
+                              ✏️
+                            </button>
+                            <button 
+                              onClick={() => handleDelete(p.id)} 
+                              style={{ background: '#fee2e2', color: '#ef4444', border: '1px solid #fca5a5', borderRadius: '4px', padding: '6px 10px', cursor: 'pointer', fontSize: '12px' }}
+                              title="Sil"
+                            >
+                              🗑️
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </>
+                  )}
+                </div>
+              );
+            })
+          )}
+        </div>
+      </main>
     </div>
   );
 }

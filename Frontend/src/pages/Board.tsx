@@ -114,7 +114,6 @@ export function Board() {
       })
       .catch((err) => {
         console.error('Pano yüklenemedi', err);
-        // KULLANICI YETKİSİNİ KAYBETTİYSE VEYA PROJE SİLİNDİYSE ANINDA DIŞARI AT
         if (err.response?.status === 403 || err.response?.status === 404) {
           navigate('/projects', { replace: true });
           return;
@@ -123,12 +122,10 @@ export function Board() {
       });
   }, [boardId, search, filterAssigneeId, navigate]);
 
-  // Ana veri yükleme
   useEffect(() => {
     loadData();
   }, [loadData]);
 
-  // Canlı Kullanıcı Bağlantısı
   useEffect(() => {
     if (!boardId) return;
 
@@ -146,17 +143,13 @@ export function Board() {
     };
   }, [boardId]);
 
-  // Görev & Yetki Güncelleme Dinleyicileri
   useEffect(() => {
     const handleTaskEvents = () => loadData();
-    const handleForceKick = () => navigate('/projects', { replace: true }); // Anında projeler sayfasına at
+    const handleForceKick = () => navigate('/projects', { replace: true });
 
-    // Görev eylemleri
     socket.on('task:created', handleTaskEvents);
     socket.on('task:updated', handleTaskEvents);
     socket.on('task:deleted', handleTaskEvents);
-    
-    // Proje silinme veya yetki alınma eylemleri (Gelecekte backend'e eklenirse diye hazır)
     socket.on('board:deleted', handleForceKick);
     socket.on('access:revoked', handleForceKick);
 
@@ -272,7 +265,7 @@ export function Board() {
       await api.put(`/tasks/${taskId}/move`, { targetColumnId, newOrder });
     } catch (err) {
       console.error('Taşıma hatası', err);
-      loadData(); // Taşıma başarısızsa anında orijinal haline geri döndür
+      loadData(); 
     }
   };
 
@@ -286,7 +279,7 @@ export function Board() {
           <Link to={`/projects/${board.projectId}`} style={{ color: '#64748b', textDecoration: 'none', fontSize: '14px', fontWeight: 500 }}>← Projeye Dön</Link>
           {isEditingBoardName && isOwner ? (
             <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-              <input type="text" value={boardNameInput} onChange={(e) => setBoardNameInput(e.target.value)} autoFocus style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '16px', fontWeight: 700, color: '#0f172a' }} />
+              <input type="text" value={boardNameInput} onChange={(e) => setBoardNameInput(e.target.value)} autoFocus style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '16px', fontWeight: 700, color: '#0f172a', backgroundColor: '#ffffff' }} />
               <button onClick={handleUpdateBoardName} style={{ padding: '4px 8px', backgroundColor: '#2563eb', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' }}>Kaydet</button>
               <button onClick={() => setIsEditingBoardName(false)} style={{ padding: '4px 8px', backgroundColor: '#e2e8f0', color: '#64748b', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' }}>İptal</button>
             </div>
@@ -299,8 +292,11 @@ export function Board() {
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <input type="text" placeholder="Görev ara..." value={search} onChange={(e) => setSearch(e.target.value)} style={{ padding: '6px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '13px', width: '160px', color: '#0f172a' }} />
-          <select value={filterAssigneeId} onChange={(e) => setFilterAssigneeId(e.target.value)} style={{ padding: '6px 10px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '13px', backgroundColor: '#fff', color: '#0f172a' }}>
+          {/* Arama Input'una backgroundColor eklendi */}
+          <input type="text" placeholder="Görev ara..." value={search} onChange={(e) => setSearch(e.target.value)} style={{ padding: '6px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '13px', width: '160px', color: '#0f172a', backgroundColor: '#ffffff' }} />
+          
+          {/* Filtre Select'ine backgroundColor eklendi */}
+          <select value={filterAssigneeId} onChange={(e) => setFilterAssigneeId(e.target.value)} style={{ padding: '6px 10px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '13px', color: '#0f172a', backgroundColor: '#ffffff' }}>
             <option value="">Tüm Kişiler</option>
             {allUsers.map((u) => <option key={u.id} value={u.id}>{u.email}</option>)}
           </select>
@@ -333,9 +329,10 @@ export function Board() {
 
             {addingColumnId === column.id && isOwner && (
               <div style={{ backgroundColor: '#ffffff', padding: '12px', borderRadius: '6px', marginBottom: '12px', border: '1px solid #cbd5e1' }}>
-                <input type="text" placeholder="Görev Başlığı..." value={newTitle} autoFocus onChange={(e) => setNewTitle(e.target.value)} style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '13px', marginBottom: '8px', boxSizing: 'border-box', color: '#0f172a' }} />
-                <textarea placeholder="Açıklama (Opsiyonel)..." value={newDescription} onChange={(e) => setNewDescription(e.target.value)} rows={2} style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '12px', marginBottom: '8px', boxSizing: 'border-box', resize: 'none', color: '#0f172a' }} />
-                <select value={newAssigneeId} onChange={(e) => setNewAssigneeId(e.target.value)} style={{ width: '100%', padding: '6px 8px', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '12px', marginBottom: '8px', boxSizing: 'border-box', backgroundColor: '#fff', color: '#0f172a' }}>
+                {/* Görev Ekleme Input'larına backgroundColor eklendi */}
+                <input type="text" placeholder="Görev Başlığı..." value={newTitle} autoFocus onChange={(e) => setNewTitle(e.target.value)} style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '13px', marginBottom: '8px', boxSizing: 'border-box', color: '#0f172a', backgroundColor: '#ffffff' }} />
+                <textarea placeholder="Açıklama (Opsiyonel)..." value={newDescription} onChange={(e) => setNewDescription(e.target.value)} rows={2} style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '12px', marginBottom: '8px', boxSizing: 'border-box', resize: 'none', color: '#0f172a', backgroundColor: '#ffffff' }} />
+                <select value={newAssigneeId} onChange={(e) => setNewAssigneeId(e.target.value)} style={{ width: '100%', padding: '6px 8px', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '12px', marginBottom: '8px', boxSizing: 'border-box', color: '#0f172a', backgroundColor: '#ffffff' }}>
                   <option value="">-- Kişi Ata (Opsiyonel) --</option>
                   {allUsers.map((u) => <option key={u.id} value={u.id}>{u.email}</option>)}
                 </select>

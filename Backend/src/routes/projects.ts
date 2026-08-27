@@ -117,8 +117,8 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
   }
 });
 
-// PATCH /api/projects/:id
-router.patch('/:id', async (req: AuthRequest, res: Response) => {
+// PUT /api/projects/:id -> Frontend PUT attığı için burası PUT olarak düzeltildi
+router.put('/:id', async (req: AuthRequest, res: Response) => {
   const projectId = String(req.params.id);
   const { name, description } = req.body;
   const userId = String(req.userId || '');
