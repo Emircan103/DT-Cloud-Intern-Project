@@ -1,15 +1,12 @@
-import { useState } from 'react';
-import { Box, Button, Input, VStack, Heading, Text } from '@chakra-ui/react';
-import { useNavigate, Link } from 'react-router-dom';
-import axios from 'axios';
-import { api } from '../lib/axios';
+import React, { useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { api } from '../lib/axios';
 
-export const Login = () => {
+export function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
-
   const { login } = useAuth();
   const navigate = useNavigate();
 
@@ -18,73 +15,72 @@ export const Login = () => {
     setError('');
 
     try {
-      const res = await api.post('/auth/login', { email, password });
-      login(res.data.token);
+      const response = await api.post('/auth/login', { email, password });
+      
+      // Kullanıcı bilgisini ve token'ı localStorage'a kaydediyoruz
+      localStorage.setItem('token', response.data.token);
+      localStorage.setItem('user', JSON.stringify({ email: email.trim() }));
+
+      login(response.data.token);
       navigate('/projects');
     } catch (err: unknown) {
-      if (axios.isAxiosError(err)) {
-        setError(err.response?.data?.error || 'Giriş yapılamadı.');
-      } else {
-        setError('Beklenmeyen bir hata oluştu.');
-      }
+      console.error(err);
+      setError('Giriş başarısız. Lütfen bilgilerinizi kontrol edin.');
     }
   };
 
   return (
-    <Box 
-      maxW="md" 
-      mx="auto" 
-      mt={10} 
-      p={6} 
-      borderWidth={1} 
-      borderRadius="lg"
-    >
-      <VStack spaceY={4} as="form" onSubmit={handleSubmit}>
-        <Heading size="lg">
-          Giriş Yap
-        </Heading>
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#f8fafc' }}>
+      <div style={{ backgroundColor: '#ffffff', padding: '32px', borderRadius: '12px', border: '1px solid #e2e8f0', width: '100%', maxWidth: '400px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)' }}>
+        <h2 style={{ fontSize: '24px', fontWeight: 800, color: '#0f172a', margin: '0 0 8px 0', textAlign: 'center' }}>Giriş Yap</h2>
+        <p style={{ color: '#64748b', fontSize: '14px', margin: '0 0 24px 0', textAlign: 'center' }}>Hesabınıza erişmek için bilgilerinizi girin</p>
 
         {error && (
-          <Text color="red.500">
+          <div style={{ backgroundColor: '#fee2e2', color: '#ef4444', padding: '10px', borderRadius: '6px', fontSize: '13px', marginBottom: '16px' }}>
             {error}
-          </Text>
+          </div>
         )}
 
-        <Input
-          placeholder="E-posta"
-          type="email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          required
-        />
+        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <div>
+            <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#334155', marginBottom: '4px' }}>E-posta</label>
+            <input
+              type="email"
+              required
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="ornek@domain.com"
+              style={{ width: '100%', padding: '10px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '14px', boxSizing: 'border-box' }}
+            />
+          </div>
 
-        <Input
-          placeholder="Şifre"
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          required
-        />
+          <div>
+            <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#334155', marginBottom: '4px' }}>Şifre</label>
+            <input
+              type="password"
+              required
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="••••••••"
+              style={{ width: '100%', padding: '10px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '14px', boxSizing: 'border-box' }}
+            />
+          </div>
 
-        <Button 
-          type="submit" 
-          colorPalette="blue" 
-          variant="solid" 
-          width="full"
-        >
-          Giriş Yap
-        </Button>
-
-        <Text fontSize="sm">
-          Hesabın yok mu?{' '}
-          <Link 
-            to="/register" 
-            style={{ color: '#3182ce', fontWeight: 'bold' }}
+          <button
+            type="submit"
+            style={{ backgroundColor: '#2563eb', color: '#ffffff', padding: '12px', borderRadius: '6px', border: 'none', fontWeight: 600, fontSize: '14px', cursor: 'pointer', marginTop: '8px' }}
           >
+            Giriş Yap
+          </button>
+        </form>
+
+        <p style={{ fontSize: '13px', color: '#64748b', textAlign: 'center', marginTop: '20px', marginBottom: 0 }}>
+          Hesabınız yok mu?{' '}
+          <Link to="/register" style={{ color: '#2563eb', textDecoration: 'none', fontWeight: 600 }}>
             Kayıt Ol
           </Link>
-        </Text>
-      </VStack>
-    </Box>
+        </p>
+      </div>
+    </div>
   );
-};
+}

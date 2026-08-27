@@ -1,24 +1,28 @@
-import { Router } from 'express';
+import { Router, Response } from 'express';
 import { prisma } from '../lib/prisma';
 import { authenticateToken, AuthRequest } from '../middleware/auth';
 
 const router = Router();
 router.use(authenticateToken);
 
-// GET /api/projects - Kullanıcının sahibi olduğu VEYA kendisine görev atanmış projeleri listele
-router.get('/', async (req: AuthRequest, res) => {
+// GET /api/projects
+router.get('/', async (req: AuthRequest, res: Response) => {
+  const userId = String(req.userId || '');
+
   try {
     const projects = await prisma.project.findMany({
       where: {
         OR: [
-          { ownerId: req.userId },
+          { ownerId: userId },
           {
             boards: {
               some: {
                 columns: {
                   some: {
                     tasks: {
-                      some: { assigneeId: req.userId },
+                      some: {
+                        assigneeId: userId,
+                      },
                     },
                   },
                 },
@@ -28,52 +32,61 @@ router.get('/', async (req: AuthRequest, res) => {
         ],
       },
       include: {
-        boards: true,
+        _count: {
+          select: { boards: true },
+        },
       },
+      orderBy: { createdAt: 'desc' },
     });
-
-    res.json(projects);
+    return res.json(projects);
   } catch (error) {
-    res.status(500).json({ error: 'Projeler listelenirken hata oluştu.' });
+    return res.status(500).json({ error: 'Projeler getirilemedi.' });
   }
 });
 
-// POST /api/projects - Yeni proje
-router.post('/', async (req: AuthRequest, res) => {
-  try {
-    const { name, description } = req.body;
-    if (!name) return res.status(400).json({ error: 'Proje adı zorunludur.' });
+// POST /api/projects
+router.post('/', async (req: AuthRequest, res: Response) => {
+  const { name, description } = req.body;
+  const userId = String(req.userId || '');
 
+  if (!name || !name.trim()) {
+    return res.status(400).json({ error: 'Proje adı zorunludur.' });
+  }
+
+  try {
     const project = await prisma.project.create({
       data: {
-        name,
-        description,
-        ownerId: req.userId!,
+        name: name.trim(),
+        description: description ? description.trim() : null,
+        ownerId: userId,
       },
     });
-    res.status(201).json(project);
+    return res.status(201).json(project);
   } catch (error) {
-    res.status(500).json({ error: 'Proje oluşturulurken hata oluştu.' });
+    return res.status(500).json({ error: 'Proje oluşturulamadı.' });
   }
 });
 
-// GET /api/projects/:id - Tek proje ve bağlı panoları
-router.get('/:id', async (req: AuthRequest, res) => {
-  try {
-    const id = req.params.id as string;
+// GET /api/projects/:id
+router.get('/:id', async (req: AuthRequest, res: Response) => {
+  const projectId = String(req.params.id);
+  const userId = String(req.userId || '');
 
+  try {
     const project = await prisma.project.findFirst({
       where: {
-        id,
+        id: projectId,
         OR: [
-          { ownerId: req.userId },
+          { ownerId: userId },
           {
             boards: {
               some: {
                 columns: {
                   some: {
                     tasks: {
-                      some: { assigneeId: req.userId },
+                      some: {
+                        assigneeId: userId,
+                      },
                     },
                   },
                 },
@@ -83,7 +96,14 @@ router.get('/:id', async (req: AuthRequest, res) => {
         ],
       },
       include: {
-        boards: true,
+        boards: {
+          include: {
+            _count: {
+              select: { columns: true },
+            },
+          },
+          orderBy: { createdAt: 'desc' },
+        },
       },
     });
 
@@ -91,50 +111,106 @@ router.get('/:id', async (req: AuthRequest, res) => {
       return res.status(404).json({ error: 'Proje bulunamadı veya erişim yetkiniz yok.' });
     }
 
-    res.json(project);
+    return res.json(project);
   } catch (error) {
-    res.status(500).json({ error: 'Proje detayları getirilirken hata oluştu.' });
+    return res.status(500).json({ error: 'Proje detayları getirilemedi.' });
   }
 });
 
-// PUT /api/projects/:id - Proje güncelle (Yalnızca Proje Sahibi)
-router.put('/:id', async (req: AuthRequest, res) => {
+// PATCH /api/projects/:id
+router.patch('/:id', async (req: AuthRequest, res: Response) => {
+  const projectId = String(req.params.id);
+  const { name, description } = req.body;
+  const userId = String(req.userId || '');
+
   try {
-    const id = req.params.id as string;
-    const { name, description } = req.body;
-
-    const project = await prisma.project.findFirst({
-      where: { id, ownerId: req.userId },
+    const existingProject = await prisma.project.findFirst({
+      where: { id: projectId, ownerId: userId },
     });
 
-    if (!project) return res.status(404).json({ error: 'Proje bulunamadı veya yetkiniz yok.' });
+    if (!existingProject) {
+      return res.status(403).json({ error: 'Projeyi düzenleme yetkiniz yok.' });
+    }
 
-    const updatedProject = await prisma.project.update({
-      where: { id },
-      data: { name, description },
+    const updated = await prisma.project.update({
+      where: { id: projectId },
+      data: {
+        name: name !== undefined ? String(name).trim() : undefined,
+        description: description !== undefined ? String(description).trim() : undefined,
+      },
     });
 
-    res.json(updatedProject);
+    return res.json(updated);
   } catch (error) {
-    res.status(500).json({ error: 'Proje güncellenirken hata oluştu.' });
+    return res.status(500).json({ error: 'Proje güncellenemedi.' });
   }
 });
 
-// DELETE /api/projects/:id - Proje sil (Yalnızca Proje Sahibi)
-router.delete('/:id', async (req: AuthRequest, res) => {
-  try {
-    const id = req.params.id as string;
+// DELETE /api/projects/:id
+router.delete('/:id', async (req: AuthRequest, res: Response) => {
+  const projectId = String(req.params.id);
+  const userId = String(req.userId || '');
 
-    const project = await prisma.project.findFirst({
-      where: { id, ownerId: req.userId },
+  try {
+    const existingProject = await prisma.project.findFirst({
+      where: { id: projectId, ownerId: userId },
     });
 
-    if (!project) return res.status(404).json({ error: 'Proje bulunamadı veya yetkiniz yok.' });
+    if (!existingProject) {
+      return res.status(403).json({ error: 'Projeyi silme yetkiniz yok.' });
+    }
 
-    await prisma.project.delete({ where: { id } });
-    res.json({ message: 'Proje silindi.' });
+    await prisma.project.delete({ where: { id: projectId } });
+    return res.json({ message: 'Proje silindi.' });
   } catch (error) {
-    res.status(500).json({ error: 'Proje silinirken hata oluştu.' });
+    return res.status(500).json({ error: 'Proje silinemedi.' });
+  }
+});
+
+// POST /api/projects/:id/boards -> Projeye Pano Ekleme
+router.post('/:id/boards', async (req: AuthRequest, res: Response) => {
+  const projectId = String(req.params.id);
+  const { name } = req.body;
+  const userId = String(req.userId || '');
+
+  if (!name || !String(name).trim()) {
+    return res.status(400).json({ error: 'Pano adı zorunludur.' });
+  }
+
+  try {
+    // Yalnızca Proje Sahibi pano ekleyebilir
+    const project = await prisma.project.findFirst({
+      where: { id: projectId, ownerId: userId },
+    });
+
+    if (!project) {
+      return res.status(403).json({ error: 'Pano oluşturma yetkiniz yok. Yalnızca proje sahibi pano ekleyebilir.' });
+    }
+
+    // Pano ve varsayılan 3 kolon (To Do, In Progress, Done) oluşturulur
+    const result = await prisma.$transaction(async (tx) => {
+      const board = await tx.board.create({
+        data: {
+          name: String(name).trim(),
+          projectId,
+        },
+      });
+
+      await tx.column.createMany({
+        data: [
+          { name: 'To Do', order: 0, boardId: board.id },
+          { name: 'In Progress', order: 1, boardId: board.id },
+          { name: 'Done', order: 2, boardId: board.id },
+        ],
+      });
+
+      return board;
+    });
+
+    return res.status(201).json(result);
+  } catch (error) {
+    console.error('Pano oluşturma hatası:', error);
+    return res.status(500).json({ error: 'Pano oluşturulamadı.' });
   }
 });
 

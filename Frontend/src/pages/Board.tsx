@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import { api } from '../lib/axios';
 import { socket } from '../lib/socket';
+import { useAuth } from '../context/AuthContext';
 import { TaskDetailModal } from '../components/TaskDetailModal';
 
 interface UserSummary {
@@ -42,21 +43,30 @@ interface BoardData {
 
 export function Board() {
   const { id: boardId } = useParams<{ id: string }>();
+  const { logout } = useAuth();
+  const navigate = useNavigate();
 
-  const getCurrentUserId = (): string | null => {
+  const getStoredUser = (): { id?: string; email?: string } => {
     try {
-      const storedUser = localStorage.getItem('user');
-      if (storedUser) {
-        const parsed = JSON.parse(storedUser);
-        return parsed.id || null;
+      const stored = localStorage.getItem('user');
+      if (stored) return JSON.parse(stored);
+      const token = localStorage.getItem('token');
+      if (token) {
+        const payloadBase64 = token.split('.')[1];
+        if (payloadBase64) {
+          const decoded = JSON.parse(atob(payloadBase64));
+          return { id: decoded.userId, email: decoded.email };
+        }
       }
     } catch {
-      return null;
+      return {};
     }
-    return null;
+    return {};
   };
 
-  const currentUserId = getCurrentUserId();
+  const currentUser = getStoredUser();
+  const currentUserId = currentUser.id || null;
+  const currentUserEmail = currentUser.email || 'Kullanıcı';
 
   const [board, setBoard] = useState<BoardData | null>(null);
   const [projectOwnerId, setProjectOwnerId] = useState<string | null>(null);
@@ -65,12 +75,15 @@ export function Board() {
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // Arama & Assignee Filtresi
   const [search, setSearch] = useState('');
   const [filterAssigneeId, setFilterAssigneeId] = useState('');
 
+  // Pano Başlığı Düzenleme
   const [isEditingBoardName, setIsEditingBoardName] = useState(false);
   const [boardNameInput, setBoardNameInput] = useState('');
 
+  // Hızlı Görev Ekleme Formu
   const [addingColumnId, setAddingColumnId] = useState<string | null>(null);
   const [newTitle, setNewTitle] = useState('');
   const [newDescription, setNewDescription] = useState('');
@@ -201,6 +214,16 @@ export function Board() {
     }
   };
 
+  const handleLogout = () => {
+    if (logout) {
+      logout();
+    } else {
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+    }
+    navigate('/login');
+  };
+
   const handleSaveTask = async (columnId: string) => {
     if (!newTitle.trim() || submittingTask) return;
 
@@ -319,9 +342,10 @@ export function Board() {
 
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#f1f5f9', display: 'flex', flexDirection: 'column', fontFamily: 'sans-serif' }}>
-      <header style={{ backgroundColor: '#ffffff', borderBottom: '1px solid #e2e8f0', padding: '16px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      {/* Header */}
+      <header style={{ backgroundColor: '#ffffff', borderBottom: '1px solid #e2e8f0', padding: '14px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-          <Link to={`/projects/${board.projectId}`} style={{ color: '#64748b', textDecoration: 'none', fontSize: '14px' }}>
+          <Link to={`/projects/${board.projectId}`} style={{ color: '#64748b', textDecoration: 'none', fontSize: '14px', fontWeight: 500 }}>
             ← Projeye Dön
           </Link>
 
@@ -366,19 +390,20 @@ export function Board() {
           )}
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+        {/* Header Sağ: Arama, Filtre, Panodakiler ve Ortak Kullanıcı Rozeti */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           <input
             type="text"
-            placeholder="Başlık veya açıklamada ara..."
+            placeholder="Görev ara..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            style={{ padding: '6px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '13px', width: '220px' }}
+            style={{ padding: '6px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '13px', width: '160px' }}
           />
 
           <select
             value={filterAssigneeId}
             onChange={(e) => setFilterAssigneeId(e.target.value)}
-            style={{ padding: '6px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '13px', backgroundColor: '#fff' }}
+            style={{ padding: '6px 10px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '13px', backgroundColor: '#fff' }}
           >
             <option value="">Tüm Kişiler</option>
             {allUsers.map((u) => (
@@ -387,36 +412,82 @@ export function Board() {
               </option>
             ))}
           </select>
-        </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <span style={{ fontSize: '12px', color: '#64748b', fontWeight: 500 }}>Panodakiler:</span>
-          <div style={{ display: 'flex', gap: '4px' }}>
+          {/* Panodaki Canlı Kullanıcılar */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '4px', paddingLeft: '6px', borderLeft: '1px solid #e2e8f0' }}>
             {activeUsers.map((u) => (
               <div
                 key={u.id}
                 title={u.email}
                 style={{
-                  width: '30px',
-                  height: '30px',
+                  width: '26px',
+                  height: '26px',
                   borderRadius: '50%',
-                  backgroundColor: '#2563eb',
+                  backgroundColor: '#3b82f6',
                   color: '#ffffff',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  boxShadow: '0 0 0 2px #fff',
+                  fontSize: '11px',
+                  fontWeight: 700,
                 }}
               >
                 {u.email.charAt(0).toUpperCase()}
               </div>
             ))}
           </div>
+
+          {/* Standart Aktif Kullanıcı Rozeti & Çıkış */}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              backgroundColor: '#f8fafc',
+              padding: '6px 12px',
+              borderRadius: '8px',
+              border: '1px solid #e2e8f0',
+              marginLeft: '6px',
+            }}
+          >
+            <div
+              style={{
+                width: '28px',
+                height: '28px',
+                borderRadius: '50%',
+                backgroundColor: '#2563eb',
+                color: '#ffffff',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: '13px',
+                fontWeight: 700,
+              }}
+            >
+              {currentUserEmail.charAt(0).toUpperCase()}
+            </div>
+            <span style={{ fontSize: '13px', fontWeight: 600, color: '#0f172a' }}>{currentUserEmail}</span>
+            <button
+              onClick={handleLogout}
+              style={{
+                marginLeft: '6px',
+                padding: '4px 8px',
+                backgroundColor: '#fee2e2',
+                color: '#ef4444',
+                border: 'none',
+                borderRadius: '6px',
+                fontSize: '12px',
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+            >
+              Çıkış
+            </button>
+          </div>
         </div>
       </header>
 
+      {/* Columns List */}
       <main style={{ flex: 1, padding: '24px', overflowX: 'auto', display: 'flex', gap: '20px', alignItems: 'flex-start' }}>
         {board.columns.map((column) => (
           <div
@@ -462,6 +533,7 @@ export function Board() {
               )}
             </div>
 
+            {/* Quick Add Form */}
             {addingColumnId === column.id && isOwner && (
               <div style={{ backgroundColor: '#ffffff', padding: '12px', borderRadius: '6px', marginBottom: '12px', border: '1px solid #cbd5e1' }}>
                 <input
@@ -518,6 +590,7 @@ export function Board() {
               </div>
             )}
 
+            {/* Task Cards */}
             <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '10px' }}>
               {column.tasks.map((task) => (
                 <div
@@ -556,6 +629,7 @@ export function Board() {
         ))}
       </main>
 
+      {/* Task Modal */}
       <TaskDetailModal
         task={selectedTask}
         isOwner={isOwner}

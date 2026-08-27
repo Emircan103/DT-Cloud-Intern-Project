@@ -1,197 +1,138 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import {
-  Box,
-  Button,
-  Input,
-  Heading,
-  Text,
-  Flex,
-  HStack,
-  VStack,
-} from '@chakra-ui/react';
-import { useParams, useNavigate } from 'react-router-dom';
-import axios from 'axios';
+import React, { useEffect, useState } from 'react';
+import { useParams, Link } from 'react-router-dom';
 import { api } from '../lib/axios';
+import { Navbar } from '../components/Navbar';
 
-interface BoardItem {
+interface BoardSummary {
   id: string;
   name: string;
-  projectId: string;
+  createdAt: string;
+  _count?: {
+    columns: number;
+  };
 }
 
-interface Project {
+interface ProjectData {
   id: string;
   name: string;
-  description?: string;
-  boards?: BoardItem[];
+  description?: string | null;
+  boards: BoardSummary[];
 }
 
-export const ProjectDetail = () => {
+export function ProjectDetail() {
   const { id } = useParams<{ id: string }>();
-  const navigate = useNavigate();
-
-  const [project, setProject] = useState<Project | null>(null);
+  const [project, setProject] = useState<ProjectData | null>(null);
   const [boardName, setBoardName] = useState('');
-  const [error, setError] = useState('');
-  const [editingBoardId, setEditingBoardId] = useState<string | null>(null);
-  const [editBoardName, setEditBoardName] = useState('');
+  const [loading, setLoading] = useState(true);
 
-  const refreshProjectData = useCallback(async () => {
+  const loadProject = () => {
     if (!id) return;
-    try {
-      const res = await api.get(`/projects/${id}`);
-      setProject(res.data);
-    } catch (err: unknown) {
-      if (axios.isAxiosError(err)) {
-        setError(err.response?.data?.error || 'Proje yüklenemedi.');
-      }
-    }
-  }, [id]);
+    api.get(`/projects/${id}`)
+      .then((res) => {
+        setProject(res.data);
+        setLoading(false);
+      })
+      .catch((err) => {
+        console.error('Proje yüklenemedi', err);
+        setLoading(false);
+      });
+  };
 
   useEffect(() => {
-    let ignore = false;
-
-    const loadProject = async () => {
-      if (!id) return;
-      try {
-        const res = await api.get(`/projects/${id}`);
-        if (!ignore) {
-          setProject(res.data);
-        }
-      } catch (err: unknown) {
-        if (!ignore && axios.isAxiosError(err)) {
-          setError(err.response?.data?.error || 'Proje yüklenemedi.');
-        }
-      }
-    };
-
     loadProject();
-
-    return () => {
-      ignore = true;
-    };
   }, [id]);
 
   const handleCreateBoard = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!id || !boardName.trim()) return;
+    if (!boardName.trim() || !id) return;
 
     try {
-      await api.post('/boards', { name: boardName, projectId: id });
+      await api.post(`/projects/${id}/boards`, { name: boardName.trim() });
       setBoardName('');
-      await refreshProjectData();
-    } catch (err: unknown) {
-      if (axios.isAxiosError(err)) {
-        setError(err.response?.data?.error || 'Pano oluşturulamadı.');
-      }
+      loadProject();
+    } catch (err) {
+      console.error('Pano oluşturulamadı', err);
+      alert('Pano oluşturulurken hata oluştu.');
     }
   };
 
-  const handleUpdateBoard = async (boardId: string) => {
-    if (!editBoardName.trim()) return;
-    try {
-      await api.put(`/boards/${boardId}`, { name: editBoardName });
-      setEditingBoardId(null);
-      await refreshProjectData();
-    } catch (err: unknown) {
-      if (axios.isAxiosError(err)) {
-        setError(err.response?.data?.error || 'Pano güncellenemedi.');
-      }
-    }
-  };
+  if (loading) {
+    return <div style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>Yükleniyor...</div>;
+  }
 
-  const handleDeleteBoard = async (boardId: string) => {
-    try {
-      await api.delete(`/boards/${boardId}`);
-      await refreshProjectData();
-    } catch (err: unknown) {
-      if (axios.isAxiosError(err)) {
-        setError(err.response?.data?.error || 'Pano silinemedi.');
-      }
-    }
-  };
+  if (!project) {
+    return <div style={{ padding: '40px', textAlign: 'center', color: '#ef4444' }}>Proje bulunamadı.</div>;
+  }
 
   return (
-    <Box maxW="5xl" mx="auto" mt={8} p={4}>
-      <Button size="sm" variant="outline" mb={4} onClick={() => navigate('/projects')}>
-        ← Projelere Dön
-      </Button>
+    <div style={{ minHeight: '100vh', backgroundColor: '#f8fafc', display: 'flex', flexDirection: 'column' }}>
+      <Navbar title={project.name} backLink={{ to: '/projects', label: 'Projeler' }} />
 
-      <Heading size="xl">{project?.name || 'Proje Detayı'}</Heading>
-      {project?.description && <Text color="gray.600" mt={1}>{project.description}</Text>}
-
-      {error && (
-        <Box p={3} bg="red.100" color="red.700" borderRadius="md" my={4}>
-          <Text fontWeight="bold">{error}</Text>
-        </Box>
-      )}
-
-      <Box p={4} borderWidth={1} borderRadius="lg" my={6}>
-        <Heading size="md" mb={4}>Yeni Pano Ekle</Heading>
-        <HStack as="form" onSubmit={handleCreateBoard}>
-          <Input
-            placeholder="Pano Adı (örn: Sprint 1, Backend Ekibi)"
-            value={boardName}
-            onChange={(e) => setBoardName(e.target.value)}
-            required
-          />
-          <Button type="submit" colorPalette="blue">Ekle</Button>
-        </HStack>
-      </Box>
-
-      <Heading size="md" mb={4}>Proje Panoları</Heading>
-      <VStack spaceY={3} align="stretch">
-        {!project?.boards || project.boards.length === 0 ? (
-          <Text color="gray.500">Henüz pano eklenmemiş. Yukarıdaki formdan bir pano oluşturun.</Text>
-        ) : (
-          project.boards.map((board) => (
-            <Box key={board.id} p={4} borderWidth={1} borderRadius="md" bg="white">
-              {editingBoardId === board.id ? (
-                <HStack>
-                  <Input
-                    value={editBoardName}
-                    onChange={(e) => setEditBoardName(e.target.value)}
-                  />
-                  <Button size="sm" onClick={() => setEditingBoardId(null)}>İptal</Button>
-                  <Button size="sm" colorPalette="green" onClick={() => handleUpdateBoard(board.id)}>
-                    Kaydet
-                  </Button>
-                </HStack>
-              ) : (
-                <Flex justifyContent="space-between" alignItems="center">
-                  <Heading size="sm">{board.name}</Heading>
-                  <HStack>
-                    <Button
-                      size="sm"
-                      colorPalette="purple"
-                      onClick={() => navigate(`/boards/${board.id}`)}
-                    >
-                      Kanban Tahtasını Aç ➔
-                    </Button>
-                    <Button
-                      size="sm"
-                      colorPalette="yellow"
-                      onClick={() => {
-                        setEditingBoardId(board.id);
-                        setEditBoardName(board.name);
-                      }}
-                    >
-                      Düzenle
-                    </Button>
-                    <Button
-                      size="sm"
-                      colorPalette="red"
-                      onClick={() => handleDeleteBoard(board.id)}
-                    >
-                      Sil
-                    </Button>
-                  </HStack>
-                </Flex>
-              )}
-            </Box>
-          ))
+      <main style={{ maxWidth: '1000px', width: '100%', margin: '0 auto', padding: '32px 24px' }}>
+        {project.description && (
+          <p style={{ color: '#64748b', fontSize: '15px', marginTop: 0, marginBottom: '24px' }}>
+            {project.description}
+          </p>
         )}
-      </VStack>
-    </Box>
+
+        {/* Yeni Pano Oluştur */}
+        <div style={{ backgroundColor: '#ffffff', padding: '20px', borderRadius: '12px', border: '1px solid #e2e8f0', marginBottom: '32px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+          <h2 style={{ fontSize: '16px', fontWeight: 700, color: '#0f172a', margin: '0 0 12px 0' }}>+ Yeni Pano Ekle</h2>
+          <form onSubmit={handleCreateBoard} style={{ display: 'flex', gap: '12px' }}>
+            <input
+              type="text"
+              placeholder="Pano Adı (Örn: Kanban, Sprint 1) *"
+              value={boardName}
+              onChange={(e) => setBoardName(e.target.value)}
+              required
+              style={{ flex: 1, padding: '10px 14px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '14px' }}
+            />
+            <button
+              type="submit"
+              style={{ padding: '10px 20px', backgroundColor: '#2563eb', color: '#ffffff', border: 'none', borderRadius: '8px', fontWeight: 600, fontSize: '14px', cursor: 'pointer' }}
+            >
+              Pano Oluştur
+            </button>
+          </form>
+        </div>
+
+        {/* Panolar Listesi */}
+        <h2 style={{ fontSize: '18px', fontWeight: 700, color: '#0f172a', marginBottom: '16px' }}>Panolar</h2>
+        {project.boards.length === 0 ? (
+          <div style={{ textAlign: 'center', color: '#64748b', padding: '40px', backgroundColor: '#ffffff', borderRadius: '12px', border: '1px dashed #cbd5e1' }}>
+            Bu projeye ait henüz bir pano bulunmuyor.
+          </div>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '16px' }}>
+            {project.boards.map((b) => (
+              <Link
+                key={b.id}
+                to={`/boards/${b.id}`}
+                style={{
+                  backgroundColor: '#ffffff',
+                  padding: '20px',
+                  borderRadius: '12px',
+                  border: '1px solid #e2e8f0',
+                  textDecoration: 'none',
+                  color: 'inherit',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  justifyContent: 'space-between',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+                }}
+              >
+                <div>
+                  <h3 style={{ margin: '0 0 8px 0', fontSize: '16px', fontWeight: 700, color: '#0f172a' }}>{b.name}</h3>
+                  <span style={{ fontSize: '12px', color: '#64748b' }}>{b._count?.columns || 0} Kolon</span>
+                </div>
+                <div style={{ marginTop: '16px', fontSize: '13px', color: '#2563eb', fontWeight: 600 }}>
+                  Panoya Git →
+                </div>
+              </Link>
+            ))}
+          </div>
+        )}
+      </main>
+    </div>
   );
-};
+}
