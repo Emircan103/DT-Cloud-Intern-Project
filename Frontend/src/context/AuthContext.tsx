@@ -1,44 +1,61 @@
-import { createContext, useContext, useState, type ReactNode } from 'react';
+import React, { useState, useEffect } from 'react';
+import { AuthContext, type User } from './useAuth.ts';
+import { socket, connectSocketWithToken } from '../lib/socket';
 
-// AuthContext'in içerisinde hangi bilgilerin ve fonksiyonların
-// bulunacağını TypeScript'e tanımlıyoruz
-interface AuthContextType {
-  token: string | null;
-  login: (token: string) => void;
-  logout: () => void;
-}
+export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const [token, setToken] = useState<string | null>(() => sessionStorage.getItem('token'));
+  const [user, setUser] = useState<User | null>(() => {
+    try {
+      const stored = sessionStorage.getItem('user');
+      return stored ? JSON.parse(stored) : null;
+    } catch {
+      return null;
+    }
+  });
 
-// Authentication bilgilerinin paylaşılacağı Context'i oluşturuyoruz.
-const AuthContext = createContext<AuthContextType | undefined>(undefined);
+  useEffect(() => {
+    if (token && user) {
+      sessionStorage.setItem('token', token);
+      sessionStorage.setItem('user', JSON.stringify(user));
+      connectSocketWithToken();
+    } else {
+      sessionStorage.removeItem('token');
+      sessionStorage.removeItem('user');
+      if (socket.connected) {
+        socket.disconnect();
+      }
+    }
+  }, [token, user]);
 
-// AuthProvider, içerisine aldığı tüm componentlere
-// authentication bilgilerini (token, login, logout) sağlar.
-export const AuthProvider = ({ children }: { children: ReactNode }) => {
-  const [token, setToken] = useState<string | null>(localStorage.getItem('token'));
-
-  const login = (newToken: string) => {
-    localStorage.setItem('token', newToken);
+  const login = (newToken: string, newUser: User) => {
+    sessionStorage.setItem('token', newToken);
+    sessionStorage.setItem('user', JSON.stringify(newUser));
     setToken(newToken);
+    setUser(newUser);
+    connectSocketWithToken();
   };
 
   const logout = () => {
-    localStorage.removeItem('token');
     setToken(null);
+    setUser(null);
+    sessionStorage.removeItem('token');
+    sessionStorage.removeItem('user');
+    if (socket.connected) {
+      socket.disconnect();
+    }
   };
 
-  // AuthContext içerisindeki bilgileri uygulamanın
-  // altındaki componentlere gönderiyoruz.
   return (
-    <AuthContext.Provider value={{ token, login, logout }}>
+    <AuthContext.Provider
+      value={{
+        token,
+        user,
+        isAuthenticated: !!token,
+        login,
+        logout,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );
-};
-
-// useAuth hook'u, AuthContext içerisindeki bilgilere kolayca erişim sağlar.
-// eslint-disable-next-line react-refresh/only-export-components
-export const useAuth = () => {
-  const context = useContext(AuthContext);
-  if (!context) throw new Error('useAuth must be used within AuthProvider');
-  return context;
-};
+}

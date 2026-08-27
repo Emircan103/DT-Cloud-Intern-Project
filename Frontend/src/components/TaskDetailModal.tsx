@@ -60,9 +60,7 @@ function TaskDetailModalContent({ task: initialTask, isOwner, onClose, onTaskUpd
   onTaskUpdated?: (task: Task) => void;
   onTaskDeleted?: (taskId: string) => void;
 }) {
-  // Modal içi güncel görev durumu
   const [currentTask, setCurrentTask] = useState<Task>(initialTask);
-
   const [comments, setComments] = useState<Comment[]>([]);
   const [activities, setActivities] = useState<ActivityLog[]>([]);
   const [users, setUsers] = useState<UserSummary[]>([]);
@@ -70,7 +68,6 @@ function TaskDetailModalContent({ task: initialTask, isOwner, onClose, onTaskUpd
   const [submitting, setSubmitting] = useState(false);
   const [activeTab, setActiveTab] = useState<'comments' | 'activity'>('comments');
 
-  // Düzenleme State'leri
   const [isEditing, setIsEditing] = useState(false);
   const [editTitle, setEditTitle] = useState(initialTask.title);
   const [editDescription, setEditDescription] = useState(initialTask.description || '');
@@ -122,7 +119,6 @@ function TaskDetailModalContent({ task: initialTask, isOwner, onClose, onTaskUpd
     }
   };
 
-  // Anlık güncelleme sağlayan kayıt fonksiyonu
   const handleSaveEdit = async () => {
     if (!editTitle.trim() || savingEdit) return;
 
@@ -135,20 +131,14 @@ function TaskDetailModalContent({ task: initialTask, isOwner, onClose, onTaskUpd
       });
 
       const updated = res.data;
-      
-      // 1. Modal içindeki görünümü anında güncelle
       setCurrentTask(updated);
       setEditTitle(updated.title);
       setEditDescription(updated.description || '');
       setEditAssigneeId(updated.assignee?.id || updated.assigneeId || '');
 
-      // 2. Ana ekranı (Board) güncelle
       if (onTaskUpdated) onTaskUpdated(updated);
-      
-      // 3. Düzenleme modunu kapat
       setIsEditing(false);
 
-      // 4. Aktivite günlüğünü tazele
       const actRes = await api.get(`/tasks/${currentTask.id}/activity`);
       setActivities(actRes.data);
     } catch (err: unknown) {
@@ -220,7 +210,6 @@ function TaskDetailModalContent({ task: initialTask, isOwner, onClose, onTaskUpd
         }}
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Header */}
         <div style={{ padding: '16px 24px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
             <button
@@ -264,48 +253,36 @@ function TaskDetailModalContent({ task: initialTask, isOwner, onClose, onTaskUpd
               </button>
             )}
           </div>
-          <button
-            onClick={onClose}
-            style={{ background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer', color: '#94a3b8' }}
-          >
-            ✕
-          </button>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer', color: '#94a3b8' }}>✕</button>
         </div>
 
-        {/* Content / Edit Area */}
         <div style={{ padding: '20px 24px', backgroundColor: isEditing ? '#f8fafc' : '#ffffff', borderBottom: '1px solid #e2e8f0' }}>
           {isEditing ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
               <div>
-                <label style={{ fontSize: '12px', fontWeight: 600, color: '#475569', display: 'block', marginBottom: '4px' }}>
-                  Başlık
-                </label>
+                <label style={{ fontSize: '12px', fontWeight: 600, color: '#475569', display: 'block', marginBottom: '4px' }}>Başlık</label>
                 <input
                   type="text"
                   value={editTitle}
                   onChange={(e) => setEditTitle(e.target.value)}
                   placeholder="Görev başlığı"
-                  style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '14px', fontWeight: 600, boxSizing: 'border-box' }}
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '14px', fontWeight: 600, boxSizing: 'border-box', color: '#0f172a', backgroundColor: '#fff' }}
                 />
               </div>
 
               <div>
-                <label style={{ fontSize: '12px', fontWeight: 600, color: '#475569', display: 'block', marginBottom: '4px' }}>
-                  Açıklama
-                </label>
+                <label style={{ fontSize: '12px', fontWeight: 600, color: '#475569', display: 'block', marginBottom: '4px' }}>Açıklama</label>
                 <textarea
                   value={editDescription}
                   onChange={(e) => setEditDescription(e.target.value)}
                   placeholder="Açıklama"
                   rows={3}
-                  style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '13px', resize: 'vertical', boxSizing: 'border-box' }}
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '13px', resize: 'vertical', boxSizing: 'border-box', color: '#0f172a', backgroundColor: '#fff' }}
                 />
               </div>
 
               <div>
-                <label style={{ fontSize: '12px', fontWeight: 600, color: '#475569', display: 'block', marginBottom: '4px' }}>
-                  Kullanıcı Ata (Assignee) {!isOwner && '(Yalnızca Proje Sahibi Değiştirebilir)'}
-                </label>
+                <label style={{ fontSize: '12px', fontWeight: 600, color: '#475569', display: 'block', marginBottom: '4px' }}>Kullanıcı Ata {!isOwner && '(Yalnızca Proje Sahibi)'}</label>
                 <select
                   value={editAssigneeId}
                   disabled={!isOwner}
@@ -317,6 +294,7 @@ function TaskDetailModalContent({ task: initialTask, isOwner, onClose, onTaskUpd
                     border: '1px solid #cbd5e1',
                     fontSize: '13px',
                     backgroundColor: isOwner ? '#fff' : '#f1f5f9',
+                    color: '#0f172a',
                     cursor: isOwner ? 'default' : 'not-allowed',
                     boxSizing: 'border-box',
                   }}
@@ -331,17 +309,8 @@ function TaskDetailModalContent({ task: initialTask, isOwner, onClose, onTaskUpd
               </div>
 
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '6px' }}>
-                <button
-                  onClick={() => setIsEditing(false)}
-                  style={{ padding: '6px 12px', border: 'none', background: '#e2e8f0', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' }}
-                >
-                  İptal
-                </button>
-                <button
-                  onClick={handleSaveEdit}
-                  disabled={savingEdit || !editTitle.trim()}
-                  style={{ padding: '6px 14px', border: 'none', background: '#2563eb', color: '#fff', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', fontWeight: 600 }}
-                >
+                <button onClick={() => setIsEditing(false)} style={{ padding: '6px 12px', border: 'none', background: '#e2e8f0', color: '#334155', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' }}>İptal</button>
+                <button onClick={handleSaveEdit} disabled={savingEdit || !editTitle.trim()} style={{ padding: '6px 14px', border: 'none', background: '#2563eb', color: '#fff', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', fontWeight: 600 }}>
                   {savingEdit ? 'Kaydediliyor...' : 'Değişiklikleri Kaydet'}
                 </button>
               </div>
@@ -364,39 +333,15 @@ function TaskDetailModalContent({ task: initialTask, isOwner, onClose, onTaskUpd
           )}
         </div>
 
-        {/* Tabs */}
         <div style={{ display: 'flex', borderBottom: '1px solid #e2e8f0', padding: '0 24px', backgroundColor: '#ffffff' }}>
-          <button
-            onClick={() => setActiveTab('comments')}
-            style={{
-              padding: '12px 16px',
-              border: 'none',
-              background: 'none',
-              cursor: 'pointer',
-              fontWeight: activeTab === 'comments' ? 600 : 500,
-              color: activeTab === 'comments' ? '#2563eb' : '#64748b',
-              borderBottom: activeTab === 'comments' ? '2px solid #2563eb' : '2px solid transparent',
-            }}
-          >
+          <button onClick={() => setActiveTab('comments')} style={{ padding: '12px 16px', border: 'none', background: 'none', cursor: 'pointer', fontWeight: activeTab === 'comments' ? 600 : 500, color: activeTab === 'comments' ? '#2563eb' : '#64748b', borderBottom: activeTab === 'comments' ? '2px solid #2563eb' : '2px solid transparent' }}>
             Yorumlar ({comments.length})
           </button>
-          <button
-            onClick={() => setActiveTab('activity')}
-            style={{
-              padding: '12px 16px',
-              border: 'none',
-              background: 'none',
-              cursor: 'pointer',
-              fontWeight: activeTab === 'activity' ? 600 : 500,
-              color: activeTab === 'activity' ? '#2563eb' : '#64748b',
-              borderBottom: activeTab === 'activity' ? '2px solid #2563eb' : '2px solid transparent',
-            }}
-          >
+          <button onClick={() => setActiveTab('activity')} style={{ padding: '12px 16px', border: 'none', background: 'none', cursor: 'pointer', fontWeight: activeTab === 'activity' ? 600 : 500, color: activeTab === 'activity' ? '#2563eb' : '#64748b', borderBottom: activeTab === 'activity' ? '2px solid #2563eb' : '2px solid transparent' }}>
             Aktivite Geçmişi ({activities.length})
           </button>
         </div>
 
-        {/* Tab Body */}
         <div style={{ padding: '20px 24px', flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '14px' }}>
           {activeTab === 'comments' ? (
             <>
@@ -424,28 +369,9 @@ function TaskDetailModalContent({ task: initialTask, isOwner, onClose, onTaskUpd
                   placeholder="Yorum ekleyin..."
                   value={newComment}
                   onChange={(e) => setNewComment(e.target.value)}
-                  style={{
-                    flex: 1,
-                    padding: '10px 12px',
-                    borderRadius: '6px',
-                    border: '1px solid #cbd5e1',
-                    fontSize: '13px',
-                  }}
+                  style={{ flex: 1, padding: '10px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '13px', color: '#0f172a', backgroundColor: '#fff' }}
                 />
-                <button
-                  type="submit"
-                  disabled={submitting}
-                  style={{
-                    backgroundColor: '#2563eb',
-                    color: '#fff',
-                    border: 'none',
-                    borderRadius: '6px',
-                    padding: '0 16px',
-                    fontSize: '13px',
-                    fontWeight: 600,
-                    cursor: submitting ? 'not-allowed' : 'pointer',
-                  }}
-                >
+                <button type="submit" disabled={submitting} style={{ backgroundColor: '#2563eb', color: '#fff', border: 'none', borderRadius: '6px', padding: '0 16px', fontSize: '13px', fontWeight: 600, cursor: submitting ? 'not-allowed' : 'pointer' }}>
                   Gönder
                 </button>
               </form>

@@ -1,11 +1,15 @@
-import { io } from 'socket.io-client';
+import { io, Socket } from 'socket.io-client';
 
-const BACKEND_URL = 'http://localhost:5000';
-
-export const socket = io(BACKEND_URL, {
+export const socket: Socket = io('http://localhost:5000', {
   autoConnect: false,
-  auth: (cb) => {
-    const token = localStorage.getItem('token');
-    cb({ token });
-  },
 });
+
+export const connectSocketWithToken = () => {
+  const token = sessionStorage.getItem('token');
+  if (token) {
+    socket.auth = { token };
+    if (!socket.connected) {
+      socket.connect();
+    }
+  }
+};

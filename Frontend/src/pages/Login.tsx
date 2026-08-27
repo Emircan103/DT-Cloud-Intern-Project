@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
+import { useAuth } from '../context/useAuth.ts';
 import { api } from '../lib/axios';
 
 export function Login() {
@@ -15,30 +15,30 @@ export function Login() {
     setError('');
 
     try {
-      const response = await api.post('/auth/login', { email, password });
-      
-      // Kullanıcı bilgisini ve token'ı localStorage'a kaydediyoruz
-      localStorage.setItem('token', response.data.token);
-      localStorage.setItem('user', JSON.stringify({ email: email.trim() }));
+      const res = await api.post('/auth/login', {
+        email: email.trim(),
+        password,
+      });
 
-      login(response.data.token);
+      const token = res.data.token;
+      const user = res.data.user || { email: email.trim() };
+
+      login(token, user);
       navigate('/projects');
     } catch (err: unknown) {
       console.error(err);
-      setError('Giriş başarısız. Lütfen bilgilerinizi kontrol edin.');
+      setError('Giriş başarısız. Lütfen e-posta ve şifrenizi kontrol edin.');
     }
   };
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#f8fafc' }}>
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#f8fafc', fontFamily: 'sans-serif' }}>
       <div style={{ backgroundColor: '#ffffff', padding: '32px', borderRadius: '12px', border: '1px solid #e2e8f0', width: '100%', maxWidth: '400px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)' }}>
         <h2 style={{ fontSize: '24px', fontWeight: 800, color: '#0f172a', margin: '0 0 8px 0', textAlign: 'center' }}>Giriş Yap</h2>
-        <p style={{ color: '#64748b', fontSize: '14px', margin: '0 0 24px 0', textAlign: 'center' }}>Hesabınıza erişmek için bilgilerinizi girin</p>
+        <p style={{ color: '#64748b', fontSize: '14px', margin: '0 0 24px 0', textAlign: 'center' }}>Panonuza erişmek için giriş yapın</p>
 
         {error && (
-          <div style={{ backgroundColor: '#fee2e2', color: '#ef4444', padding: '10px', borderRadius: '6px', fontSize: '13px', marginBottom: '16px' }}>
-            {error}
-          </div>
+          <div style={{ backgroundColor: '#fee2e2', color: '#ef4444', padding: '10px', borderRadius: '6px', fontSize: '13px', marginBottom: '16px' }}>{error}</div>
         )}
 
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -66,19 +66,12 @@ export function Login() {
             />
           </div>
 
-          <button
-            type="submit"
-            style={{ backgroundColor: '#2563eb', color: '#ffffff', padding: '12px', borderRadius: '6px', border: 'none', fontWeight: 600, fontSize: '14px', cursor: 'pointer', marginTop: '8px' }}
-          >
-            Giriş Yap
-          </button>
+          <button type="submit" style={{ backgroundColor: '#2563eb', color: '#ffffff', padding: '12px', borderRadius: '6px', border: 'none', fontWeight: 600, fontSize: '14px', cursor: 'pointer', marginTop: '8px' }}>Giriş Yap</button>
         </form>
 
         <p style={{ fontSize: '13px', color: '#64748b', textAlign: 'center', marginTop: '20px', marginBottom: 0 }}>
           Hesabınız yok mu?{' '}
-          <Link to="/register" style={{ color: '#2563eb', textDecoration: 'none', fontWeight: 600 }}>
-            Kayıt Ol
-          </Link>
+          <Link to="/register" style={{ color: '#2563eb', textDecoration: 'none', fontWeight: 600 }}>Kayıt Ol</Link>
         </p>
       </div>
     </div>
