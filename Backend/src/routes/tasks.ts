@@ -2,6 +2,7 @@ import { Router, Response } from 'express';
 import { prisma } from '../lib/prisma';
 import { authenticateToken, AuthRequest } from '../middleware/auth';
 import { getIO } from '../lib/socket';
+import { notifyIfProjectAccessLost } from '../lib/access';
 
 const router = Router();
 router.use(authenticateToken);
@@ -23,7 +24,7 @@ const verifyTaskAccess = async (taskId: string, userId: string) => {
           board: {
             select: {
               project: {
-                select: { ownerId: true },
+                select: { id: true, ownerId: true },
               },
             },
           },
@@ -329,6 +330,12 @@ const updateTaskHandler = async (req: AuthRequest, res: Response) => {
       }
     }
 
+    // Görev başka birine devredildiyse, eski atanan kişinin bu projede
+    // başka görevi kalmadıysa anlık olarak erişimini sonlandır.
+    if (oldAssigneeId && oldAssigneeId !== newAssigneeId) {
+      await notifyIfProjectAccessLost(oldAssigneeId, existingTask.column.board.project.id);
+    }
+
     return res.json(updatedTask);
   } catch (error) {
     return res.status(500).json({ error: 'Görev güncellenemedi.' });
@@ -464,6 +471,7 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
     }
 
     const assigneeId = task.assigneeId;
+    const projectId = task.column.board.project.id;
 
     // Görevi siliyoruz
     await prisma.task.delete({ where: { id: taskId } });
@@ -477,6 +485,12 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
       if (assigneeId) {
         io.to(`user:${assigneeId}`).emit('project:updated');
       }
+    }
+
+    // Görev silindikten sonra, atanan kişinin bu projede başka görevi kalmadıysa
+    // (ve proje sahibi değilse) anlık olarak erişimini sonlandır.
+    if (assigneeId) {
+      await notifyIfProjectAccessLost(assigneeId, projectId);
     }
 
     return res.json({ message: 'Görev silindi.' });

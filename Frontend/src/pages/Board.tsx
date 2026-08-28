@@ -143,7 +143,28 @@ export function Board() {
 
   useEffect(() => {
     const handleTaskEvents = () => loadData();
-    const handleForceKick = () => navigate('/projects', { replace: true });
+
+    // Erişim tamamen sona erdiğinde (pano/proje silindi veya kullanıcının artık
+    // bu projede hiç görevi kalmadı) güvenli bir şekilde çıkışı yönetir:
+    // önce açık olan görev modalını kapatır, pano state'ini temizler,
+    // pano odasından ayrılır ve ardından proje listesine yönlendirir.
+    const safeLeaveAndRedirect = () => {
+      setSelectedTask(null);
+      setBoard(null);
+      setLoading(true);
+      if (boardId) socket.emit('leave:board', boardId);
+      navigate('/projects', { replace: true });
+    };
+
+    const handleForceKick = () => safeLeaveAndRedirect();
+
+    // access:revoked sinyali kullanıcının kişisel odasına gönderiliyor (tüm projeler için ortak),
+    // bu yüzden yalnızca şu an açık olan panonun projesiyle ilgiliyse yönlendirme yapıyoruz.
+    const handleAccessRevoked = (data: { projectId?: string }) => {
+      if (!board?.projectId || !data?.projectId || data.projectId === board.projectId) {
+        safeLeaveAndRedirect();
+      }
+    };
 
     // Görev silindiğinde sayfayı yenilemeden anlık olarak ekrandan kaldırır
     const handleTaskDeleted = (data: { taskId: string; columnId: string }) => {
@@ -170,7 +191,7 @@ export function Board() {
     socket.on('task:updated', handleTaskEvents);
     socket.on('task:deleted', handleTaskDeleted);
     socket.on('board:deleted', handleForceKick);
-    socket.on('access:revoked', handleForceKick);
+    socket.on('access:revoked', handleAccessRevoked);
     socket.on('board:updated', handleBoardUpdate);
 
     return () => {
@@ -178,10 +199,10 @@ export function Board() {
       socket.off('task:updated', handleTaskEvents);
       socket.off('task:deleted', handleTaskDeleted);
       socket.off('board:deleted', handleForceKick);
-      socket.off('access:revoked', handleForceKick);
+      socket.off('access:revoked', handleAccessRevoked);
       socket.off('board:updated', handleBoardUpdate);
     };
-  }, [loadData, navigate]);
+  }, [loadData, navigate, board?.projectId, boardId]);
 
   const isOwner = Boolean(currentUserId && projectOwnerId && currentUserId === projectOwnerId);
 

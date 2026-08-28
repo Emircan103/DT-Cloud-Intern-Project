@@ -2,6 +2,7 @@ import { Router, Response } from 'express';
 import { prisma } from '../lib/prisma';
 import { authenticateToken, AuthRequest } from '../middleware/auth';
 import { io } from '../lib/socket';
+import { notifyIfProjectAccessLost } from '../lib/access';
 
 const router = Router();
 router.use(authenticateToken);
@@ -28,6 +29,20 @@ router.get('/:id/columns', async (req: AuthRequest, res: Response) => {
     }
 
     const isProjectOwner = board.project.ownerId === userId;
+
+    // Erişim kontrolü: proje sahibi değilse, bu projede en az bir göreve atanmış olmalı.
+    // Aksi halde (örn. erişimi az önce sona ermiş bir kullanıcı) panoyu göremez.
+    if (!isProjectOwner) {
+      const hasAssignedTask = await prisma.task.count({
+        where: {
+          assigneeId: userId,
+          column: { board: { projectId: board.project.id } },
+        },
+      });
+      if (hasAssignedTask === 0) {
+        return res.status(403).json({ error: 'Bu panoya erişim yetkiniz yok.' });
+      }
+    }
 
     let columns = await prisma.column.findMany({
       where: { boardId },
@@ -164,6 +179,19 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
       return res.status(404).json({ error: 'Pano bulunamadı.' });
     }
 
+    // Panodaki görevlerden etkilenecek atanmış kullanıcıları, silmeden önce tespit ediyoruz
+    const affectedTasks = await prisma.task.findMany({
+      where: { column: { boardId } },
+      select: { assigneeId: true },
+    });
+    const affectedAssigneeIds = Array.from(
+      new Set(
+        affectedTasks
+          .map((t) => t.assigneeId)
+          .filter((id): id is string => Boolean(id))
+      )
+    );
+
     await prisma.board.delete({
       where: { id: boardId },
     });
@@ -173,6 +201,13 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
 
     // 2. Projeler listesinin anlık güncellenmesi için projeye bağlı kullanıcılara sinyal yolla
     io?.to(`user:${board.project.ownerId}`).emit('project:updated', board.project);
+
+    // 3. Bu panoda görevi olan kullanıcılara da projeler listesini yenilemeleri için sinyal yolla,
+    //    ve projede başka görevleri kalmadıysa erişimlerini anlık olarak sonlandır.
+    for (const assigneeId of affectedAssigneeIds) {
+      io?.to(`user:${assigneeId}`).emit('project:updated');
+      await notifyIfProjectAccessLost(assigneeId, board.project.id);
+    }
 
     return res.json({ message: 'Pano başarıyla silindi.' });
   } catch (error) {

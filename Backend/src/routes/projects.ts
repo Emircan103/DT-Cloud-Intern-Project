@@ -167,6 +167,19 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
     // Projeye ait tüm panoların ID'lerini alıyoruz
     const boardIds = existingProject.boards.map(b => b.id);
 
+    // Projede görevi olan (proje sahibi dışındaki) tüm kullanıcıları, silmeden önce tespit ediyoruz
+    const affectedTasks = await prisma.task.findMany({
+      where: { column: { board: { projectId } } },
+      select: { assigneeId: true },
+    });
+    const affectedAssigneeIds = Array.from(
+      new Set(
+        affectedTasks
+          .map((t) => t.assigneeId)
+          .filter((id): id is string => Boolean(id) && id !== userId)
+      )
+    );
+
     // Projeyi siliyoruz (Prisma schema'da onDelete: Cascade tanımlı olduğu için panolar ve tasklar otomatik silinir)
     await prisma.project.delete({ where: { id: projectId } });
 
@@ -175,8 +188,14 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
       io?.to(`board:${boardId}`).emit('board:deleted');
     });
 
-    // Ayrıca projeler listesinde açık olan kullanıcılara da bildirim gönderiyoruz
+    // Projeler listesinde açık olan proje sahibine bildirim gönderiyoruz
     io?.to(`user:${userId}`).emit('project:deleted', { projectId });
+
+    // Projede görevi olan diğer kullanıcılara da (Proje Detayı sayfasında olsalar bile)
+    // anlık olarak erişimin sona erdiğini ve listelerinin güncellendiğini bildiriyoruz
+    affectedAssigneeIds.forEach((assigneeId) => {
+      io?.to(`user:${assigneeId}`).emit('project:deleted', { projectId });
+    });
 
     return res.json({ message: 'Proje silindi.' });
   } catch (error) {

@@ -1,8 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { AxiosError } from 'axios';
 import { api } from '../lib/axios';
 import { useAuth } from '../context/useAuth';
+import { socket, connectSocketWithToken } from '../lib/socket';
 
 interface Board {
   id: string;
@@ -58,10 +59,33 @@ export function ProjectDetail() {
   const currentUserId = currentUser.id;
   const currentUserEmail = currentUser.email || 'Kullanıcı';
 
+  const loadProject = useCallback(
+    async (opts?: { silent?: boolean }) => {
+      if (!projectId) return;
+      try {
+        const res = await api.get(`/projects/${projectId}`);
+        setProject(res.data);
+      } catch (err: unknown) {
+        console.error('Proje detayları alınamadı', err);
+        if (err instanceof AxiosError) {
+          if (err.response?.status === 404 || err.response?.status === 403) {
+            navigate('/projects', { replace: true });
+          }
+        }
+      } finally {
+        if (!opts?.silent) {
+          setLoading(false);
+        }
+      }
+    },
+    [projectId, navigate]
+  );
+
+  // İlk veri yüklemesi ayrı bir effect içinde asenkron tetikleyici olarak yönetiliyor (Cascading render uyarısını önler)
   useEffect(() => {
     let isMounted = true;
 
-    const loadProject = async () => {
+    const fetchInitialData = async () => {
       if (!projectId) return;
       try {
         const res = await api.get(`/projects/${projectId}`);
@@ -70,7 +94,6 @@ export function ProjectDetail() {
         }
       } catch (err: unknown) {
         console.error('Proje detayları alınamadı', err);
-        // AxiosError burada kullanılıyor ve hata ortadan kalkıyor
         if (err instanceof AxiosError) {
           if (err.response?.status === 404 || err.response?.status === 403) {
             navigate('/projects', { replace: true });
@@ -83,12 +106,44 @@ export function ProjectDetail() {
       }
     };
 
-    loadProject();
+    fetchInitialData();
 
     return () => {
       isMounted = false;
     };
   }, [projectId, navigate]);
+
+  // Anlık güncellemeler: proje silindiğinde, projedeki erişim (görev bazlı) sona erdiğinde
+  // veya panolar/görevler değiştiğinde bu sayfayı canlı tutuyoruz.
+  useEffect(() => {
+    if (!projectId) return;
+
+    connectSocketWithToken();
+
+    const handleAccessRevokedOrDeleted = (data?: { projectId?: string }) => {
+      if (!data?.projectId || data.projectId === projectId) {
+        setEditingBoardId(null);
+        setIsCreatingBoard(false);
+        setProject(null);
+        setLoading(true);
+        navigate('/projects', { replace: true });
+      }
+    };
+
+    const handleProjectRefresh = () => {
+      loadProject({ silent: true });
+    };
+
+    socket.on('access:revoked', handleAccessRevokedOrDeleted);
+    socket.on('project:deleted', handleAccessRevokedOrDeleted);
+    socket.on('project:updated', handleProjectRefresh);
+
+    return () => {
+      socket.off('access:revoked', handleAccessRevokedOrDeleted);
+      socket.off('project:deleted', handleAccessRevokedOrDeleted);
+      socket.off('project:updated', handleProjectRefresh);
+    };
+  }, [projectId, navigate, loadProject]);
 
   const handleLogout = () => {
     logout();

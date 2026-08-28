@@ -54,6 +54,19 @@ export const initSocket = (server: HttpServer) => {
       socketId: socket.id,
     });
 
+    // ÖNEMLİ: Kullanıcıyı kendi kişisel odasına otomatik katıyoruz.
+    // Böylece hangi sayfada olursa olsun (Projeler listesi, Proje detayı, Pano vs.)
+    // görev ataması/devri/silinmesi gibi olaylar anlık olarak kendisine ulaşır.
+    socket.join(`user:${user.id}`);
+
+    // Geriye dönük uyumluluk: frontend hâlâ join:user/leave:user emit ediyor.
+    socket.on('join:user', (uid: string) => {
+      if (uid === user.id) socket.join(`user:${user.id}`);
+    });
+    socket.on('leave:user', (uid: string) => {
+      if (uid === user.id) socket.leave(`user:${user.id}`);
+    });
+
     const broadcastPresence = (boardId: string) => {
       const usersInBoard: { id: string; email: string }[] = [];
       const seen = new Set<string>();
