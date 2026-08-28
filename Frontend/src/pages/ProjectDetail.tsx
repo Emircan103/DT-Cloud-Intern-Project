@@ -82,7 +82,7 @@ export function ProjectDetail() {
     [projectId, navigate]
   );
 
-  // İlk veri yüklemesi ayrı bir effect içinde asenkron tetikleyici olarak yönetiliyor (Cascading render uyarısını önler)
+  // İlk veri yüklemesi ayrı bir effect içinde asenkron tetikleyici olarak yönetiliyor
   useEffect(() => {
     let isMounted = true;
 

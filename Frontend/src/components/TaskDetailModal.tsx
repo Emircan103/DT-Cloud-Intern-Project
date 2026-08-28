@@ -196,8 +196,7 @@ function TaskDetailModalContent({ task: initialTask, isOwner, projectOwnerEmail,
 
       if (onTaskUpdated) onTaskUpdated(updated);
       setIsEditing(false);
-      // Not: aktivite kaydı (TASK_UPDATED/TASK_ASSIGNED) artık sunucudan `activity:created`
-      // olayıyla canlı geliyor, burada ayrıca GET ile çekmeye gerek yok.
+
     } catch (err: unknown) {
       console.error('Görev güncellenemedi', err);
       let message = 'Görev güncellenirken hata oluştu.';
@@ -270,7 +269,7 @@ function TaskDetailModalContent({ task: initialTask, isOwner, projectOwnerEmail,
         <div style={{ padding: '16px 24px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
             
-            {/* EKLENEN KISIM: Sadece Yetkisi Olanlar Düzenle Butonunu Görebilir */}
+            {/*Sadece Yetkisi Olanlar Düzenle Butonunu Görebilir */}
             {canEdit && (
               <button
                 onClick={() => {

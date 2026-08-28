@@ -115,7 +115,6 @@ export function Board() {
       .catch((err) => {
         console.error('Pano yüklenemedi', err);
         if (err.response?.status === 403 || err.response?.status === 404) {
-          // Eğer board nesnesinde projectId varsa oraya dön, yoksa genel projelere at
           const pId = board?.projectId || '';
           navigate(pId ? `/projects/${pId}` : '/projects', { replace: true });
           return;

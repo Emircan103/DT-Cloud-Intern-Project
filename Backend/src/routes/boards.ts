@@ -226,17 +226,13 @@ router.patch('/:id', async (req: AuthRequest, res: Response) => {
       },
     });
 
-    // =========================================================
     // 1. Panoyu şu anda açık olan kullanıcılara bildir
-    // =========================================================
     io?.to(`board:${boardId}`).emit(
       'board:updated',
       updated
     );
 
-    // =========================================================
     // 2. Proje detay/listesi açık olan proje sahibine bildir
-    // =========================================================
     io?.to(`user:${board.project.ownerId}`).emit(
       'project:updated',
       {
@@ -245,9 +241,7 @@ router.patch('/:id', async (req: AuthRequest, res: Response) => {
       }
     );
 
-    // =========================================================
     // 3. Projede görevi olan kullanıcılara da bildir
-    // =========================================================
     const affectedTasks = await prisma.task.findMany({
       where: {
         column: {
@@ -339,24 +333,18 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
       where: { id: boardId },
     });
 
-    // =========================================================
     // 1. Panoyu açık tutan kullanıcıları bilgilendir
-    // =========================================================
     io?.to(`board:${boardId}`).emit(
       'board:deleted'
     );
 
-    // =========================================================
     // 2. Proje sahibinin proje listesini güncelle
-    // =========================================================
     io?.to(`user:${board.project.ownerId}`).emit(
       'project:updated',
       board.project
     );
 
-    // =========================================================
     // 3. Panoda görevi olan kullanıcıları bilgilendir
-    // =========================================================
     for (const assigneeId of affectedAssigneeIds) {
       io?.to(`user:${assigneeId}`).emit(
         'project:updated'

@@ -156,7 +156,7 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
   }
 });
 
-// PUT /api/projects/:id -> Frontend PUT attığı için burası PUT olarak düzeltildi
+// PUT /api/projects/:id 
 router.put('/:id', async (req: AuthRequest, res: Response) => {
     const projectId = String(req.params.id);
     const { name, description } = req.body;
@@ -275,7 +275,7 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
     // Projeyi siliyoruz (Prisma schema'da onDelete: Cascade tanımlı olduğu için panolar ve tasklar otomatik silinir)
     await prisma.project.delete({ where: { id: projectId } });
 
-    // EKLENEN KISIM: Bu projenin panolarında açık olan herkese "proje silindi/erişim bitti" sinyali atıyoruz
+    // Bu projenin panolarında açık olan herkese "proje silindi/erişim bitti" sinyali atıyoruz
     boardIds.forEach((boardId) => {
       io?.to(`board:${boardId}`).emit('board:deleted');
     });
