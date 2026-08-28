@@ -1,6 +1,7 @@
 import { Router, Response } from 'express';
 import { prisma } from '../lib/prisma';
 import { authenticateToken, AuthRequest } from '../middleware/auth';
+import { io } from '../lib/socket';
 
 const router = Router();
 router.use(authenticateToken);
@@ -154,13 +155,29 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
   try {
     const existingProject = await prisma.project.findFirst({
       where: { id: projectId, ownerId: userId },
+      include: {
+        boards: true,
+      },
     });
 
     if (!existingProject) {
       return res.status(403).json({ error: 'Projeyi silme yetkiniz yok.' });
     }
 
+    // Projeye ait tüm panoların ID'lerini alıyoruz
+    const boardIds = existingProject.boards.map(b => b.id);
+
+    // Projeyi siliyoruz (Prisma schema'da onDelete: Cascade tanımlı olduğu için panolar ve tasklar otomatik silinir)
     await prisma.project.delete({ where: { id: projectId } });
+
+    // EKLENEN KISIM: Bu projenin panolarında açık olan herkese "proje silindi/erişim bitti" sinyali atıyoruz
+    boardIds.forEach((boardId) => {
+      io?.to(`board:${boardId}`).emit('board:deleted');
+    });
+
+    // Ayrıca projeler listesinde açık olan kullanıcılara da bildirim gönderiyoruz
+    io?.to(`user:${userId}`).emit('project:deleted', { projectId });
+
     return res.json({ message: 'Proje silindi.' });
   } catch (error) {
     return res.status(500).json({ error: 'Proje silinemedi.' });

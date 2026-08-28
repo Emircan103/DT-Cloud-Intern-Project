@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../lib/axios';
 import { useAuth } from '../context/useAuth';
+import { socket, connectSocketWithToken } from '../lib/socket';
 
 interface Project {
   id: string;
@@ -73,6 +74,33 @@ export function Projects() {
       isMounted = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (!currentUserId) return;
+
+    connectSocketWithToken();
+    socket.emit('join:user', currentUserId);
+
+    const handleProjectDeleted = (data: { projectId: string }) => {
+      setProjects((prev) => prev.filter((p) => p.id !== data.projectId));
+    };
+
+    const handleProjectUpdated = () => {
+      // Proje veya içindeki panolar değiştiğinde listeyi tamamen taze bir şekilde yeniden çekiyoruz
+      api.get('/projects').then((res) => {
+        setProjects(res.data);
+      }).catch(() => {});
+    };
+
+    socket.on('project:deleted', handleProjectDeleted);
+    socket.on('project:updated', handleProjectUpdated);
+
+    return () => {
+      socket.emit('leave:user', currentUserId);
+      socket.off('project:deleted', handleProjectDeleted);
+      socket.off('project:updated', handleProjectUpdated);
+    };
+  }, [currentUserId]);
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -201,7 +229,6 @@ export function Projects() {
                     </div>
                   ) : (
                     <>
-                      {/* EKLENEN KISIM: PROJE ETİKETİ */}
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
                         <h3 style={{ margin: 0, fontSize: '16px', color: '#0f172a', fontWeight: 700, flex: 1, paddingRight: '8px' }}>{p.name}</h3>
                         <span style={{ 

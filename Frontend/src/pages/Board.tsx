@@ -145,33 +145,46 @@ export function Board() {
     const handleTaskEvents = () => loadData();
     const handleForceKick = () => navigate('/projects', { replace: true });
 
-    // Pano güncellendiğinde sadece pano adını state üzerinde değiştir
+    // Görev silindiğinde sayfayı yenilemeden anlık olarak ekrandan kaldırır
+    const handleTaskDeleted = (data: { taskId: string; columnId: string }) => {
+      setBoard((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          columns: prev.columns.map((col) => {
+            if (col.id === data.columnId) {
+              return { ...col, tasks: col.tasks.filter((t) => t.id !== data.taskId) };
+            }
+            return col;
+          }),
+        };
+      });
+    };
+
     const handleBoardUpdate = (updatedBoard: { name: string }) => {
       setBoard((prev) => (prev ? { ...prev, name: updatedBoard.name } : null));
-      // Sekme başlığını da anında günceller
       document.title = `${updatedBoard.name} | Pano`;
     };
 
     socket.on('task:created', handleTaskEvents);
     socket.on('task:updated', handleTaskEvents);
-    socket.on('task:deleted', handleTaskEvents);
+    socket.on('task:deleted', handleTaskDeleted);
     socket.on('board:deleted', handleForceKick);
     socket.on('access:revoked', handleForceKick);
-    socket.on('board:updated', handleBoardUpdate); // Dinleyiciyi bağla
+    socket.on('board:updated', handleBoardUpdate);
 
     return () => {
       socket.off('task:created', handleTaskEvents);
       socket.off('task:updated', handleTaskEvents);
-      socket.off('task:deleted', handleTaskEvents);
+      socket.off('task:deleted', handleTaskDeleted);
       socket.off('board:deleted', handleForceKick);
       socket.off('access:revoked', handleForceKick);
-      socket.off('board:updated', handleBoardUpdate); // Temizle
+      socket.off('board:updated', handleBoardUpdate);
     };
   }, [loadData, navigate]);
 
   const isOwner = Boolean(currentUserId && projectOwnerId && currentUserId === projectOwnerId);
 
-  // Proje sahibinin E-postasını listeden buluyoruz (Görevleri atayan kişi)
   const ownerUser = allUsers.find(u => u.id === projectOwnerId);
   const projectOwnerEmail = ownerUser ? ownerUser.email : 'Proje Yöneticisi';
 
@@ -356,7 +369,6 @@ export function Board() {
                   <div style={{ fontWeight: 600, fontSize: '14px', color: '#0f172a', marginBottom: '4px' }}>{task.title}</div>
                   {task.description && <div style={{ fontSize: '12px', color: '#64748b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginBottom: '6px' }}>{task.description}</div>}
                   
-                  {/* EKLENEN KISIM: ATAYAN VE ATANAN KART İÇİ TASARIMI */}
                   {task.assignee && (
                     <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
                       <div style={{ fontSize: '10px', color: '#64748b', display: 'flex', alignItems: 'center', gap: '4px' }}>
@@ -376,7 +388,6 @@ export function Board() {
         ))}
       </main>
 
-      {/* TaskDetailModal'a yeni 'projectOwnerEmail' propunu gönderiyoruz */}
       <TaskDetailModal 
         task={selectedTask} 
         isOwner={isOwner} 

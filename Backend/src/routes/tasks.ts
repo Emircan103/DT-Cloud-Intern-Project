@@ -167,13 +167,15 @@ const createTaskInColumn = async (req: AuthRequest, res: Response) => {
       where: { columnId },
     });
 
+    const finalAssigneeId = assigneeId && String(assigneeId).trim() !== '' ? String(assigneeId) : null;
+
     const task = await prisma.task.create({
       data: {
         title: String(title).trim(),
         description: description ? String(description).trim() : '',
         order: taskCount,
         columnId,
-        assigneeId: assigneeId && String(assigneeId).trim() !== '' ? String(assigneeId) : null,
+        assigneeId: finalAssigneeId,
       },
       include: {
         assignee: { select: { id: true, email: true } },
@@ -192,6 +194,10 @@ const createTaskInColumn = async (req: AuthRequest, res: Response) => {
     const io = getIO();
     if (io) {
       io.to(`board:${column.boardId}`).emit('task:created', task);
+
+      if (finalAssigneeId) {
+        io.to(`user:${finalAssigneeId}`).emit('project:updated');
+      }
     }
 
     return res.status(201).json(task);
@@ -226,13 +232,15 @@ router.post('/', async (req: AuthRequest, res: Response) => {
 
     const taskCount = await prisma.task.count({ where: { columnId: String(columnId) } });
 
+    const finalAssigneeId = assigneeId && String(assigneeId).trim() !== '' ? String(assigneeId) : null;
+
     const task = await prisma.task.create({
       data: {
         title: String(title).trim(),
         description: description ? String(description).trim() : '',
         order: taskCount,
         columnId: String(columnId),
-        assigneeId: assigneeId && String(assigneeId).trim() !== '' ? String(assigneeId) : null,
+        assigneeId: finalAssigneeId,
       },
       include: {
         assignee: { select: { id: true, email: true } },
@@ -245,7 +253,13 @@ router.post('/', async (req: AuthRequest, res: Response) => {
     });
 
     const io = getIO();
-    if (io) io.to(`board:${task.column.boardId}`).emit('task:created', task);
+    if (io) {
+      io.to(`board:${task.column.boardId}`).emit('task:created', task);
+
+      if (finalAssigneeId) {
+        io.to(`user:${finalAssigneeId}`).emit('project:updated');
+      }
+    }
 
     return res.status(201).json(task);
   } catch (error) {
@@ -273,14 +287,18 @@ const updateTaskHandler = async (req: AuthRequest, res: Response) => {
       return res.status(403).json({ error: 'Göreve atanan kişiyi yalnızca proje sahibi değiştirebilir.' });
     }
 
+    const newAssigneeId = isProjectOwner && assigneeId !== undefined 
+      ? (assigneeId && String(assigneeId).trim() !== '' ? String(assigneeId) : null) 
+      : existingTask.assigneeId;
+
+    const oldAssigneeId = existingTask.assigneeId;
+
     const updatedTask = await prisma.task.update({
       where: { id: taskId },
       data: {
         title: title !== undefined ? String(title).trim() : undefined,
         description: description !== undefined ? String(description).trim() : undefined,
-        assigneeId: isProjectOwner && assigneeId !== undefined 
-          ? (assigneeId && String(assigneeId).trim() !== '' ? String(assigneeId) : null) 
-          : undefined,
+        assigneeId: newAssigneeId,
       },
       include: {
         assignee: { select: { id: true, email: true } },
@@ -299,7 +317,17 @@ const updateTaskHandler = async (req: AuthRequest, res: Response) => {
     }
 
     const io = getIO();
-    if (io) io.to(`board:${updatedTask.column.boardId}`).emit('task:updated', updatedTask);
+    if (io) {
+      io.to(`board:${updatedTask.column.boardId}`).emit('task:updated', updatedTask);
+
+      // Atanan kişi değiştiyse hem yeni hem eski kullanıcıya projeler listesini güncellemesi için sinyal atıyoruz
+      if (newAssigneeId) {
+        io.to(`user:${newAssigneeId}`).emit('project:updated');
+      }
+      if (oldAssigneeId && oldAssigneeId !== newAssigneeId) {
+        io.to(`user:${oldAssigneeId}`).emit('project:updated');
+      }
+    }
 
     return res.json(updatedTask);
   } catch (error) {
@@ -402,48 +430,53 @@ router.put('/:id/move', async (req: AuthRequest, res: Response) => {
   }
 });
 
-// DELETE /api/tasks/:id (Sadece Proje Sahibi)
+// DELETE /api/tasks/:id
 router.delete('/:id', async (req: AuthRequest, res: Response) => {
   const taskId = String(req.params.id);
   const userId = String(req.userId || '');
 
-  if (!userId) return res.status(401).json({ error: 'Yetkisiz erişim.' });
-
   try {
-    const task = await prisma.task.findFirst({
-      where: {
-        id: taskId,
-        column: {
-          board: {
-            project: {
-              ownerId: userId,
-            },
-          },
-        },
-      },
+    const task = await prisma.task.findUnique({
+      where: { id: taskId },
       include: {
         column: {
-          select: { boardId: true },
+          include: {
+            board: {
+              include: {
+                project: true,
+              },
+            },
+          },
         },
       },
     });
 
     if (!task) {
-      return res.status(403).json({ error: 'Görevi silme yetkiniz yok. Yalnızca proje sahibi silebilir.' });
+      return res.status(404).json({ error: 'Görev bulunamadı.' });
     }
 
-    await prisma.activityLog.create({
-      data: { action: 'TASK_DELETED', taskId, userId },
-    });
+    const projectOwnerId = task.column.board.project.ownerId;
+    const isOwner = projectOwnerId === userId;
+    const isAssignee = task.assigneeId === userId;
 
+    if (!isOwner && !isAssignee) {
+      return res.status(403).json({ error: 'Bu görevi silme yetkiniz yok.' });
+    }
+
+    const assigneeId = task.assigneeId;
+
+    // Görevi siliyoruz
     await prisma.task.delete({ where: { id: taskId } });
 
     const io = getIO();
     if (io) {
-      io.to(`board:${task.column.boardId}`).emit('task:deleted', {
-        taskId,
-        columnId: task.columnId,
-      });
+      // Pano odasındaki herkese görevin silindiğini bildiriyoruz
+      io.to(`board:${task.column.boardId}`).emit('task:deleted', { taskId, columnId: task.columnId });
+
+      // Görev silindiğinde, eğer birine atanmışsa o kişinin projeler listesini anlık güncelle
+      if (assigneeId) {
+        io.to(`user:${assigneeId}`).emit('project:updated');
+      }
     }
 
     return res.json({ message: 'Görev silindi.' });

@@ -149,24 +149,32 @@ router.patch('/:id', async (req: AuthRequest, res: Response) => {
   }
 });
 
-// DELETE /api/boards/:id
+// DELETE /api/boards/:id (Panoyu Sil)
 router.delete('/:id', async (req: AuthRequest, res: Response) => {
   const boardId = String(req.params.id);
-  const userId = String(req.userId || '');
-
+  
   try {
+    // Panoyu bulup hangi projeye ait olduğunu öğreniyoruz ki projedeki kullanıcılara haber verebilelim
     const board = await prisma.board.findUnique({
       where: { id: boardId },
       include: { project: true },
     });
 
-    if (!board) return res.status(404).json({ error: 'Pano bulunamadı.' });
-    if (board.project.ownerId !== userId) {
-      return res.status(403).json({ error: 'Panoyu yalnızca proje sahibi silebilir.' });
+    if (!board) {
+      return res.status(404).json({ error: 'Pano bulunamadı.' });
     }
 
-    await prisma.board.delete({ where: { id: boardId } });
-    return res.json({ message: 'Pano silindi.' });
+    await prisma.board.delete({
+      where: { id: boardId },
+    });
+
+    // 1. Pano içinde açık olanları dışarı at
+    io?.to(`board:${boardId}`).emit('board:deleted');
+
+    // 2. Projeler listesinin anlık güncellenmesi için projeye bağlı kullanıcılara sinyal yolla
+    io?.to(`user:${board.project.ownerId}`).emit('project:updated', board.project);
+
+    return res.json({ message: 'Pano başarıyla silindi.' });
   } catch (error) {
     return res.status(500).json({ error: 'Pano silinemedi.' });
   }
