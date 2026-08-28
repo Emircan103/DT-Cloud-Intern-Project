@@ -82,7 +82,37 @@ export const initSocket = (server: HttpServer) => {
       io?.to(`board:${boardId}`).emit('presence:update', usersInBoard);
     };
 
-    socket.on('join:board', (boardId: string) => {
+    socket.on('join:board', async (boardId: string) => {
+      // Güvenlik Kontrolü: Kullanıcı projenin sahibi Mİ VEYA panodaki herhangi bir görevin atananı Mİ?
+      const board = await prisma.board.findFirst({
+        where: {
+          id: boardId,
+          OR: [
+            {
+              project: {
+                ownerId: user.id,
+              },
+            },
+            {
+              columns: {
+                some: {
+                  tasks: {
+                    some: {
+                      assigneeId: user.id,
+                    },
+                  },
+                },
+              },
+            },
+          ],
+        },
+      });
+
+      if (!board) {
+        socket.emit('error', { message: 'Bu panoya erişim yetkiniz yok.' });
+        return;
+      }
+
       socket.join(`board:${boardId}`);
       const entry = connectedSockets.get(socket.id);
       if (entry) {

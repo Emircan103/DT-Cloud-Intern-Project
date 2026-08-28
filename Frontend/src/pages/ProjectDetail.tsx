@@ -255,63 +255,65 @@ export function ProjectDetail() {
           {project.boards.length === 0 ? (
             <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '40px', color: '#64748b', backgroundColor: '#fff', borderRadius: '8px', border: '1px solid #e2e8f0' }}>Bu projeye ait henüz bir pano bulunmuyor.</div>
           ) : (
-            project.boards.map(board => (
-              <div key={board.id} style={{ backgroundColor: '#fff', padding: '20px', borderRadius: '8px', border: '1px solid #e2e8f0', transition: 'box-shadow 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', display: 'flex', flexDirection: 'column' }}>
-                
-                {editingBoardId === board.id ? (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', flex: 1 }}>
-                    <input 
-                      type="text" 
-                      value={editBoardName} 
-                      onChange={(e) => setEditBoardName(e.target.value)} 
-                      style={{ padding: '8px', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '14px', color: '#0f172a', backgroundColor: '#ffffff', fontWeight: 700 }} 
-                    />
-                    <div style={{ display: 'flex', gap: '8px', marginTop: 'auto', paddingTop: '10px' }}>
-                      <button onClick={() => setEditingBoardId(null)} style={{ padding: '6px 12px', background: '#f1f5f9', color: '#64748b', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', flex: 1 }}>İptal</button>
-                      <button onClick={() => handleSaveEditBoard(board.id)} style={{ padding: '6px 12px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', fontWeight: 600, flex: 1 }}>Kaydet</button>
+            project.boards.map(board => {
+              return (
+                <div key={board.id} style={{ backgroundColor: '#fff', padding: '20px', borderRadius: '8px', border: '1px solid #e2e8f0', transition: 'box-shadow 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', display: 'flex', flexDirection: 'column' }}>
+                  
+                  {editingBoardId === board.id ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', flex: 1 }}>
+                      <input 
+                        type="text" 
+                        value={editBoardName} 
+                        onChange={(e) => setEditBoardName(e.target.value)} 
+                        style={{ padding: '8px', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '14px', color: '#0f172a', backgroundColor: '#ffffff', fontWeight: 700 }} 
+                      />
+                      <div style={{ display: 'flex', gap: '8px', marginTop: 'auto', paddingTop: '10px' }}>
+                        <button onClick={() => setEditingBoardId(null)} style={{ padding: '6px 12px', background: '#f1f5f9', color: '#64748b', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', flex: 1 }}>İptal</button>
+                        <button onClick={() => handleSaveEditBoard(board.id)} style={{ padding: '6px 12px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', fontWeight: 600, flex: 1 }}>Kaydet</button>
+                      </div>
                     </div>
-                  </div>
-                ) : (
-                  <>
-                    <h3 style={{ margin: '0 0 12px 0', fontSize: '16px', color: '#0f172a', fontWeight: 700 }}>{board.name}</h3>
-                    <div style={{ fontSize: '13px', color: '#64748b' }}>
-                      Kolon Sayısı: <strong>{board._count?.columns || 0}</strong>
-                    </div>
-                    <div style={{ marginTop: '8px', fontSize: '11px', color: '#94a3b8', marginBottom: '16px' }}>
-                      Oluşturulma: {new Date(board.createdAt).toLocaleDateString('tr-TR')}
-                    </div>
-                    
-                    <div style={{ display: 'flex', gap: '8px', marginTop: 'auto', borderTop: '1px solid #f1f5f9', paddingTop: '12px' }}>
-                      <Link to={`/boards/${board.id}`} style={{ flex: 1 }}>
-                        <button style={{ width: '100%', padding: '6px 0', background: '#eff6ff', color: '#2563eb', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', fontWeight: 600 }}>Panoya Git</button>
-                      </Link>
+                  ) : (
+                    <>
+                      <h3 style={{ margin: '0 0 12px 0', fontSize: '16px', color: '#0f172a', fontWeight: 700 }}>{board.name}</h3>
+                      <div style={{ fontSize: '13px', color: '#64748b' }}>
+                        Kolon Sayısı: <strong>{board._count?.columns || 0}</strong>
+                      </div>
+                      <div style={{ marginTop: '8px', fontSize: '11px', color: '#94a3b8', marginBottom: '16px' }}>
+                        Oluşturulma: {new Date(board.createdAt).toLocaleDateString('tr-TR')}
+                      </div>
                       
-                      {isOwner && (
-                        <>
-                          <button 
-                            onClick={() => {
-                              setEditingBoardId(board.id);
-                              setEditBoardName(board.name);
-                            }} 
-                            style={{ background: '#f8fafc', color: '#475569', border: '1px solid #e2e8f0', borderRadius: '4px', padding: '6px 10px', cursor: 'pointer', fontSize: '12px' }}
-                            title="Düzenle"
-                          >
-                            ✏️
-                          </button>
-                          <button 
-                            onClick={() => handleDeleteBoard(board.id)} 
-                            style={{ background: '#fee2e2', color: '#ef4444', border: '1px solid #fca5a5', borderRadius: '4px', padding: '6px 10px', cursor: 'pointer', fontSize: '12px' }}
-                            title="Sil"
-                          >
-                            🗑️
-                          </button>
-                        </>
-                      )}
-                    </div>
-                  </>
-                )}
-              </div>
-            ))
+                      <div style={{ display: 'flex', gap: '8px', marginTop: 'auto', borderTop: '1px solid #f1f5f9', paddingTop: '12px' }}>
+                        <Link to={`/boards/${board.id}`} style={{ flex: 1, textDecoration: 'none' }}>
+                          <button style={{ width: '100%', padding: '6px 0', background: '#eff6ff', color: '#2563eb', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', fontWeight: 600 }}>Panoya Git</button>
+                        </Link>
+                        
+                        {isOwner && (
+                          <>
+                            <button 
+                              onClick={() => {
+                                setEditingBoardId(board.id);
+                                setEditBoardName(board.name);
+                              }} 
+                              style={{ background: '#f8fafc', color: '#475569', border: '1px solid #e2e8f0', borderRadius: '4px', padding: '6px 10px', cursor: 'pointer', fontSize: '12px' }}
+                              title="Düzenle"
+                            >
+                              ✏️
+                            </button>
+                            <button 
+                              onClick={() => handleDeleteBoard(board.id)} 
+                              style={{ background: '#fee2e2', color: '#ef4444', border: '1px solid #fca5a5', borderRadius: '4px', padding: '6px 10px', cursor: 'pointer', fontSize: '12px' }}
+                              title="Sil"
+                            >
+                              🗑️
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </>
+                  )}
+                </div>
+              );
+            })
           )}
         </div>
       </main>

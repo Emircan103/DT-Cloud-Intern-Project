@@ -115,16 +115,36 @@ export function Board() {
       .catch((err) => {
         console.error('Pano yüklenemedi', err);
         if (err.response?.status === 403 || err.response?.status === 404) {
-          navigate('/projects', { replace: true });
+          // Eğer board nesnesinde projectId varsa oraya dön, yoksa genel projelere at
+          const pId = board?.projectId || '';
+          navigate(pId ? `/projects/${pId}` : '/projects', { replace: true });
           return;
         }
         setLoading(false);
       });
-  }, [boardId, search, filterAssigneeId, navigate]);
+  }, [boardId, search, filterAssigneeId, navigate, board?.projectId]);
 
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  useEffect(() => {
+    const handleError = (err: { message: string }) => {
+      alert(err.message || 'Yetkisiz erişim.');
+      // Proje ID'si elindeyse doğrudan o projenin detay sayfasına yönlendir:
+      if (board?.projectId) {
+        navigate(`/projects/${board.projectId}`, { replace: true });
+      } else {
+        navigate('/projects', { replace: true });
+      }
+    };
+
+    socket.on('error', handleError);
+
+    return () => {
+      socket.off('error', handleError);
+    };
+  }, [navigate, board?.projectId]);
 
   useEffect(() => {
     if (!boardId) return;
