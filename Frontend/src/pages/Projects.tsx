@@ -8,7 +8,7 @@ interface Project {
   name: string;
   description?: string | null;
   createdAt: string;
-  ownerId?: string; // Projenin sahibi olup olmadığımızı anlamak için
+  ownerId?: string;
 }
 
 export function Projects() {
@@ -19,11 +19,9 @@ export function Projects() {
   const [loading, setLoading] = useState(true);
   const [isCreating, setIsCreating] = useState(false);
   
-  // Yeni Proje State'leri
   const [newTitle, setNewTitle] = useState('');
   const [newDesc, setNewDesc] = useState('');
 
-  // Proje Düzenleme State'leri
   const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState('');
   const [editDesc, setEditDesc] = useState('');
@@ -76,7 +74,6 @@ export function Projects() {
     };
   }, []);
 
-  // --- YENİ PROJE OLUŞTURMA ---
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newTitle.trim()) return;
@@ -91,13 +88,10 @@ export function Projects() {
     }
   };
 
-  // --- PROJE SİLME ---
   const handleDelete = async (id: string) => {
     if (!window.confirm('Bu projeyi kalıcı olarak silmek istediğinize emin misiniz?')) return;
-    
     try {
       await api.delete(`/projects/${id}`);
-      // Silinen projeyi listeden anında çıkarıyoruz (Performans dostu)
       setProjects((prev) => prev.filter((p) => p.id !== id));
     } catch (err) {
       console.error('Proje silinemedi', err);
@@ -105,17 +99,13 @@ export function Projects() {
     }
   };
 
-  // --- PROJE GÜNCELLEME ---
   const handleSaveEdit = async (id: string) => {
     if (!editTitle.trim()) return;
-
     try {
       const res = await api.put(`/projects/${id}`, { 
         name: editTitle.trim(), 
         description: editDesc.trim() 
       });
-      
-      // Güncellenen projeyi listeye yansıtıyoruz
       setProjects((prev) => prev.map((p) => (p.id === id ? res.data : p)));
       setEditingProjectId(null);
     } catch (err) {
@@ -185,15 +175,12 @@ export function Projects() {
             <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '40px', color: '#64748b', backgroundColor: '#fff', borderRadius: '8px', border: '1px solid #e2e8f0' }}>Henüz bir proje bulunmuyor.</div>
           ) : (
             projects.map(p => {
-              // Kullanıcı, projenin sahibi ise düzenleme/silme haklarına sahip olsun
-              // Eğer backend ownerId yollamıyorsa, şimdilik herkes görebilir.
-              const isOwner = p.ownerId === currentUserId || true; // Güvenlik backend'de korunur
+              const isOwner = p.ownerId === currentUserId;
 
               return (
                 <div key={p.id} style={{ backgroundColor: '#fff', padding: '20px', borderRadius: '8px', border: '1px solid #e2e8f0', transition: 'box-shadow 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', display: 'flex', flexDirection: 'column' }}>
                   
                   {editingProjectId === p.id ? (
-                    // DÜZENLEME MODU
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', flex: 1 }}>
                       <input 
                         type="text" 
@@ -213,15 +200,29 @@ export function Projects() {
                       </div>
                     </div>
                   ) : (
-                    // GÖRÜNTÜLEME MODU
                     <>
-                      <h3 style={{ margin: '0 0 8px 0', fontSize: '16px', color: '#0f172a', fontWeight: 700 }}>{p.name}</h3>
+                      {/* EKLENEN KISIM: PROJE ETİKETİ */}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
+                        <h3 style={{ margin: 0, fontSize: '16px', color: '#0f172a', fontWeight: 700, flex: 1, paddingRight: '8px' }}>{p.name}</h3>
+                        <span style={{ 
+                          fontSize: '11px', 
+                          padding: '4px 8px', 
+                          borderRadius: '12px', 
+                          backgroundColor: isOwner ? '#eff6ff' : '#f8fafc', 
+                          color: isOwner ? '#2563eb' : '#64748b', 
+                          border: isOwner ? '1px solid #bfdbfe' : '1px solid #e2e8f0', 
+                          fontWeight: 600, 
+                          whiteSpace: 'nowrap' 
+                        }}>
+                          {isOwner ? '👑 Yönetici' : '👥 Katılımcı'}
+                        </span>
+                      </div>
+
                       {p.description && <p style={{ margin: 0, fontSize: '13px', color: '#64748b', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{p.description}</p>}
                       <div style={{ marginTop: '12px', fontSize: '11px', color: '#94a3b8', marginBottom: '16px' }}>
                         Oluşturulma: {new Date(p.createdAt).toLocaleDateString('tr-TR')}
                       </div>
                       
-                      {/* Butonlar Grubu */}
                       <div style={{ display: 'flex', gap: '8px', marginTop: 'auto', borderTop: '1px solid #f1f5f9', paddingTop: '12px' }}>
                         <Link to={`/projects/${p.id}`} style={{ flex: 1 }}>
                           <button style={{ width: '100%', padding: '6px 0', background: '#eff6ff', color: '#2563eb', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', fontWeight: 600 }}>Projeye Git</button>

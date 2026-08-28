@@ -128,9 +128,7 @@ export function Board() {
 
   useEffect(() => {
     if (!boardId) return;
-
     api.get('/auth/users').then((res) => setAllUsers(res.data)).catch(() => {});
-
     connectSocketWithToken();
     socket.emit('join:board', boardId);
 
@@ -147,11 +145,19 @@ export function Board() {
     const handleTaskEvents = () => loadData();
     const handleForceKick = () => navigate('/projects', { replace: true });
 
+    // Pano güncellendiğinde sadece pano adını state üzerinde değiştir
+    const handleBoardUpdate = (updatedBoard: { name: string }) => {
+      setBoard((prev) => (prev ? { ...prev, name: updatedBoard.name } : null));
+      // Sekme başlığını da anında günceller
+      document.title = `${updatedBoard.name} | Pano`;
+    };
+
     socket.on('task:created', handleTaskEvents);
     socket.on('task:updated', handleTaskEvents);
     socket.on('task:deleted', handleTaskEvents);
     socket.on('board:deleted', handleForceKick);
     socket.on('access:revoked', handleForceKick);
+    socket.on('board:updated', handleBoardUpdate); // Dinleyiciyi bağla
 
     return () => {
       socket.off('task:created', handleTaskEvents);
@@ -159,10 +165,15 @@ export function Board() {
       socket.off('task:deleted', handleTaskEvents);
       socket.off('board:deleted', handleForceKick);
       socket.off('access:revoked', handleForceKick);
+      socket.off('board:updated', handleBoardUpdate); // Temizle
     };
   }, [loadData, navigate]);
 
   const isOwner = Boolean(currentUserId && projectOwnerId && currentUserId === projectOwnerId);
+
+  // Proje sahibinin E-postasını listeden buluyoruz (Görevleri atayan kişi)
+  const ownerUser = allUsers.find(u => u.id === projectOwnerId);
+  const projectOwnerEmail = ownerUser ? ownerUser.email : 'Proje Yöneticisi';
 
   const handleUpdateBoardName = async () => {
     if (!boardNameInput.trim() || !board) return;
@@ -292,10 +303,7 @@ export function Board() {
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          {/* Arama Input'una backgroundColor eklendi */}
           <input type="text" placeholder="Görev ara..." value={search} onChange={(e) => setSearch(e.target.value)} style={{ padding: '6px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '13px', width: '160px', color: '#0f172a', backgroundColor: '#ffffff' }} />
-          
-          {/* Filtre Select'ine backgroundColor eklendi */}
           <select value={filterAssigneeId} onChange={(e) => setFilterAssigneeId(e.target.value)} style={{ padding: '6px 10px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '13px', color: '#0f172a', backgroundColor: '#ffffff' }}>
             <option value="">Tüm Kişiler</option>
             {allUsers.map((u) => <option key={u.id} value={u.id}>{u.email}</option>)}
@@ -329,7 +337,6 @@ export function Board() {
 
             {addingColumnId === column.id && isOwner && (
               <div style={{ backgroundColor: '#ffffff', padding: '12px', borderRadius: '6px', marginBottom: '12px', border: '1px solid #cbd5e1' }}>
-                {/* Görev Ekleme Input'larına backgroundColor eklendi */}
                 <input type="text" placeholder="Görev Başlığı..." value={newTitle} autoFocus onChange={(e) => setNewTitle(e.target.value)} style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '13px', marginBottom: '8px', boxSizing: 'border-box', color: '#0f172a', backgroundColor: '#ffffff' }} />
                 <textarea placeholder="Açıklama (Opsiyonel)..." value={newDescription} onChange={(e) => setNewDescription(e.target.value)} rows={2} style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '12px', marginBottom: '8px', boxSizing: 'border-box', resize: 'none', color: '#0f172a', backgroundColor: '#ffffff' }} />
                 <select value={newAssigneeId} onChange={(e) => setNewAssigneeId(e.target.value)} style={{ width: '100%', padding: '6px 8px', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '12px', marginBottom: '8px', boxSizing: 'border-box', color: '#0f172a', backgroundColor: '#ffffff' }}>
@@ -348,7 +355,20 @@ export function Board() {
                 <div key={task.id} draggable onDragStart={(e) => handleDragStart(e, task.id, column.id)} onDragOver={handleDragOver} onDrop={(e) => handleDropOnTask(e, task.id, column.id)} onClick={() => setSelectedTask(task)} style={{ backgroundColor: '#ffffff', padding: '12px', borderRadius: '6px', boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)', cursor: 'grab', border: '1px solid #cbd5e1' }}>
                   <div style={{ fontWeight: 600, fontSize: '14px', color: '#0f172a', marginBottom: '4px' }}>{task.title}</div>
                   {task.description && <div style={{ fontSize: '12px', color: '#64748b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginBottom: '6px' }}>{task.description}</div>}
-                  {task.assignee && <span style={{ fontSize: '11px', color: '#2563eb', backgroundColor: '#eff6ff', padding: '2px 6px', borderRadius: '4px', display: 'inline-block' }}>👤 {task.assignee.email}</span>}
+                  
+                  {/* EKLENEN KISIM: ATAYAN VE ATANAN KART İÇİ TASARIMI */}
+                  {task.assignee && (
+                    <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      <div style={{ fontSize: '10px', color: '#64748b', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <span>🏢 Atayan:</span>
+                        <span style={{ fontWeight: 600, color: '#475569' }}>{projectOwnerEmail}</span>
+                      </div>
+                      <div style={{ fontSize: '11px', color: '#2563eb', backgroundColor: '#eff6ff', padding: '3px 6px', borderRadius: '4px', display: 'inline-flex', alignItems: 'center', gap: '4px', width: 'fit-content' }}>
+                        <span>👤 Atanan:</span>
+                        <span style={{ fontWeight: 600 }}>{task.assignee.email}</span>
+                      </div>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -356,7 +376,15 @@ export function Board() {
         ))}
       </main>
 
-      <TaskDetailModal task={selectedTask} isOwner={isOwner} onClose={() => setSelectedTask(null)} onTaskUpdated={() => loadData()} onTaskDeleted={() => { setSelectedTask(null); loadData(); }} />
+      {/* TaskDetailModal'a yeni 'projectOwnerEmail' propunu gönderiyoruz */}
+      <TaskDetailModal 
+        task={selectedTask} 
+        isOwner={isOwner} 
+        projectOwnerEmail={projectOwnerEmail} 
+        onClose={() => setSelectedTask(null)} 
+        onTaskUpdated={() => loadData()} 
+        onTaskDeleted={() => { setSelectedTask(null); loadData(); }} 
+      />
     </div>
   );
 }

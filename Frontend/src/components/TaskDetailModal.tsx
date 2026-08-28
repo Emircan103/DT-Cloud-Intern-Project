@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { AxiosError } from 'axios';
 import { api } from '../lib/axios';
+import { useAuth } from '../context/useAuth';
 
 interface UserSummary {
   id: string;
@@ -33,12 +34,13 @@ interface Task {
 interface Props {
   task: Task | null;
   isOwner?: boolean;
+  projectOwnerEmail?: string;
   onClose: () => void;
   onTaskUpdated?: (task: Task) => void;
   onTaskDeleted?: (taskId: string) => void;
 }
 
-export function TaskDetailModal({ task, isOwner = true, onClose, onTaskUpdated, onTaskDeleted }: Props) {
+export function TaskDetailModal({ task, isOwner = true, projectOwnerEmail, onClose, onTaskUpdated, onTaskDeleted }: Props) {
   if (!task) return null;
 
   return (
@@ -46,6 +48,7 @@ export function TaskDetailModal({ task, isOwner = true, onClose, onTaskUpdated, 
       key={task.id}
       task={task}
       isOwner={isOwner}
+      projectOwnerEmail={projectOwnerEmail}
       onClose={onClose}
       onTaskUpdated={onTaskUpdated}
       onTaskDeleted={onTaskDeleted}
@@ -53,13 +56,15 @@ export function TaskDetailModal({ task, isOwner = true, onClose, onTaskUpdated, 
   );
 }
 
-function TaskDetailModalContent({ task: initialTask, isOwner, onClose, onTaskUpdated, onTaskDeleted }: {
+function TaskDetailModalContent({ task: initialTask, isOwner, projectOwnerEmail, onClose, onTaskUpdated, onTaskDeleted }: {
   task: Task;
   isOwner: boolean;
+  projectOwnerEmail?: string;
   onClose: () => void;
   onTaskUpdated?: (task: Task) => void;
   onTaskDeleted?: (taskId: string) => void;
 }) {
+  const { user } = useAuth();
   const [currentTask, setCurrentTask] = useState<Task>(initialTask);
   const [comments, setComments] = useState<Comment[]>([]);
   const [activities, setActivities] = useState<ActivityLog[]>([]);
@@ -73,6 +78,32 @@ function TaskDetailModalContent({ task: initialTask, isOwner, onClose, onTaskUpd
   const [editDescription, setEditDescription] = useState(initialTask.description || '');
   const [editAssigneeId, setEditAssigneeId] = useState(initialTask.assignee?.id || initialTask.assigneeId || '');
   const [savingEdit, setSavingEdit] = useState(false);
+
+  // O anki kullanıcının kimliğini (ID) güvenli bir şekilde alıyoruz
+  const getStoredUser = (): { id?: string; email?: string } => {
+    if (user?.email) return user;
+    try {
+      const stored = sessionStorage.getItem('user');
+      if (stored) return JSON.parse(stored);
+      const token = sessionStorage.getItem('token');
+      if (token) {
+        const payload = token.split('.')[1];
+        if (payload) {
+          const decoded = JSON.parse(atob(payload));
+          return { id: decoded.userId, email: decoded.email };
+        }
+      }
+    } catch {
+      return {};
+    }
+    return {};
+  };
+
+  const currentUserId = getStoredUser().id;
+
+  // Düzenleme yetkisi: Proje sahibi Mİ? VEYA Görev bu kullanıcıya mı atanmış?
+  const isAssignee = currentTask.assignee?.id === currentUserId || currentTask.assigneeId === currentUserId;
+  const canEdit = isOwner || isAssignee;
 
   useEffect(() => {
     let isMounted = true;
@@ -212,28 +243,32 @@ function TaskDetailModalContent({ task: initialTask, isOwner, onClose, onTaskUpd
       >
         <div style={{ padding: '16px 24px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-            <button
-              onClick={() => {
-                if (!isEditing) {
-                  setEditTitle(currentTask.title);
-                  setEditDescription(currentTask.description || '');
-                  setEditAssigneeId(currentTask.assignee?.id || currentTask.assigneeId || '');
-                }
-                setIsEditing(!isEditing);
-              }}
-              style={{
-                backgroundColor: isEditing ? '#e2e8f0' : '#f8fafc',
-                border: '1px solid #cbd5e1',
-                borderRadius: '6px',
-                padding: '4px 10px',
-                fontSize: '12px',
-                fontWeight: 600,
-                cursor: 'pointer',
-                color: '#334155',
-              }}
-            >
-              {isEditing ? 'Düzenlemeyi Kapat' : '✏️ Düzenle'}
-            </button>
+            
+            {/* EKLENEN KISIM: Sadece Yetkisi Olanlar Düzenle Butonunu Görebilir */}
+            {canEdit && (
+              <button
+                onClick={() => {
+                  if (!isEditing) {
+                    setEditTitle(currentTask.title);
+                    setEditDescription(currentTask.description || '');
+                    setEditAssigneeId(currentTask.assignee?.id || currentTask.assigneeId || '');
+                  }
+                  setIsEditing(!isEditing);
+                }}
+                style={{
+                  backgroundColor: isEditing ? '#e2e8f0' : '#f8fafc',
+                  border: '1px solid #cbd5e1',
+                  borderRadius: '6px',
+                  padding: '4px 10px',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  color: '#334155',
+                }}
+              >
+                {isEditing ? 'Düzenlemeyi Kapat' : '✏️ Düzenle'}
+              </button>
+            )}
 
             {isOwner && (
               <button
@@ -317,15 +352,23 @@ function TaskDetailModalContent({ task: initialTask, isOwner, onClose, onTaskUpd
             </div>
           ) : (
             <div>
-              <h2 style={{ margin: '0 0 6px 0', fontSize: '18px', fontWeight: 700, color: '#0f172a' }}>{currentTask.title}</h2>
-              <div style={{ fontSize: '12px', color: '#64748b', marginBottom: '8px' }}>
-                Atanan:{' '}
-                {currentTask.assignee ? (
-                  <strong style={{ color: '#2563eb' }}>{currentTask.assignee.email}</strong>
-                ) : (
-                  <span style={{ color: '#94a3b8' }}>Kimseye atanmamış</span>
-                )}
+              <h2 style={{ margin: '0 0 12px 0', fontSize: '18px', fontWeight: 700, color: '#0f172a' }}>{currentTask.title}</h2>
+              
+              <div style={{ fontSize: '13px', color: '#64748b', marginBottom: '16px', display: 'flex', flexDirection: 'column', gap: '6px', borderBottom: '1px solid #e2e8f0', paddingBottom: '12px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span style={{ width: '60px' }}>Atayan:</span>
+                  <strong style={{ color: '#475569' }}>{projectOwnerEmail || 'Proje Yöneticisi'}</strong>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span style={{ width: '60px' }}>Atanan:</span>
+                  {currentTask.assignee ? (
+                    <strong style={{ color: '#2563eb', backgroundColor: '#eff6ff', padding: '2px 6px', borderRadius: '4px' }}>{currentTask.assignee.email}</strong>
+                  ) : (
+                    <span style={{ color: '#94a3b8' }}>Kimseye atanmamış</span>
+                  )}
+                </div>
               </div>
+
               <p style={{ margin: 0, fontSize: '14px', color: '#334155', whiteSpace: 'pre-wrap' }}>
                 {currentTask.description || 'Açıklama girilmemiş.'}
               </p>

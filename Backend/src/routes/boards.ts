@@ -1,6 +1,7 @@
 import { Router, Response } from 'express';
 import { prisma } from '../lib/prisma';
 import { authenticateToken, AuthRequest } from '../middleware/auth';
+import { io } from '../lib/socket';
 
 const router = Router();
 router.use(authenticateToken);
@@ -139,6 +140,8 @@ router.patch('/:id', async (req: AuthRequest, res: Response) => {
       where: { id: boardId },
       data: { name: String(name).trim() },
     });
+
+    io?.to(`board:${boardId}`).emit('board:updated', updated);
 
     return res.json(updated);
   } catch (error) {

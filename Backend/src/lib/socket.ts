@@ -3,7 +3,7 @@ import { Server, Socket } from 'socket.io';
 import jwt from 'jsonwebtoken';
 import { prisma } from './prisma';
 
-let io: Server | null = null;
+export let io: Server | null = null;
 const JWT_SECRET = process.env.JWT_SECRET || 'secret';
 
 interface SocketUser {
