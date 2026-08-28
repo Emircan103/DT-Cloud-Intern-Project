@@ -96,7 +96,11 @@ export function Projects() {
     socket.on('project:updated', handleProjectUpdated);
 
     return () => {
-      socket.emit('leave:user', currentUserId);
+      // NOT: Burada bilerek 'leave:user' emit ETMİYORUZ. Kullanıcının kişisel bildirim
+      // odası (`user:${id}`) sunucu tarafında bağlantı kurulduğu anda otomatik atanır ve
+      // sekme açık olduğu sürece kalmalıdır — aksi halde bu sayfadan ayrılıp
+      // Proje Detayı veya Pano sayfasına geçildiğinde anlık bildirimler (görev
+      // silindi/devredildi, proje/pano silindi) artık ulaşmaz.
       socket.off('project:deleted', handleProjectDeleted);
       socket.off('project:updated', handleProjectUpdated);
     };

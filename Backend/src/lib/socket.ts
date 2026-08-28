@@ -59,12 +59,14 @@ export const initSocket = (server: HttpServer) => {
     // görev ataması/devri/silinmesi gibi olaylar anlık olarak kendisine ulaşır.
     socket.join(`user:${user.id}`);
 
-    // Geriye dönük uyumluluk: frontend hâlâ join:user/leave:user emit ediyor.
+    // Geriye dönük uyumluluk: bazı sayfalar hâlâ join:user emit ediyor (zararsız, zaten katılı).
+    // ÖNEMLİ: leave:user KASITLI OLARAK dinlenmiyor/uygulanmıyor. Kullanıcının kişisel
+    // `user:` odası, hangi sayfada olursa olsun (Projeler, Proje Detayı, Pano...) bağlantı
+    // boyunca sabit kalmalı; aksi halde bir sayfadan ayrılırken bildirim odasından da
+    // çıkılmış olur ve diğer sayfalarda anlık güncellemeler (access:revoked, project:updated,
+    // project:deleted) hiç ulaşmaz. Oda yalnızca 'disconnect' anında otomatik temizlenir.
     socket.on('join:user', (uid: string) => {
       if (uid === user.id) socket.join(`user:${user.id}`);
-    });
-    socket.on('leave:user', (uid: string) => {
-      if (uid === user.id) socket.leave(`user:${user.id}`);
     });
 
     const broadcastPresence = (boardId: string) => {
