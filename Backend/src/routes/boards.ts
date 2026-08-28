@@ -11,36 +11,53 @@ router.use(authenticateToken);
 router.get('/:id/columns', async (req: AuthRequest, res: Response) => {
   const boardId = String(req.params.id);
   const userId = String(req.userId || '');
-  const search = req.query.search ? String(req.query.search).toLowerCase() : '';
-  const assigneeId = req.query.assigneeId ? String(req.query.assigneeId) : '';
+  const search = req.query.search
+    ? String(req.query.search).toLowerCase()
+    : '';
+  const assigneeId = req.query.assigneeId
+    ? String(req.query.assigneeId)
+    : '';
 
   try {
     const board = await prisma.board.findUnique({
       where: { id: boardId },
       include: {
         project: {
-          select: { id: true, name: true, ownerId: true },
+          select: {
+            id: true,
+            name: true,
+            ownerId: true,
+          },
         },
       },
     });
 
     if (!board) {
-      return res.status(404).json({ error: 'Pano bulunamadı.' });
+      return res.status(404).json({
+        error: 'Pano bulunamadı.',
+      });
     }
 
     const isProjectOwner = board.project.ownerId === userId;
 
-    // Erişim kontrolü: proje sahibi değilse, bu projede en az bir göreve atanmış olmalı.
-    // Aksi halde (örn. erişimi az önce sona ermiş bir kullanıcı) panoyu göremez.
+    // Erişim kontrolü:
+    // Proje sahibi değilse, bu projede en az bir göreve atanmış olmalı.
     if (!isProjectOwner) {
       const hasAssignedTask = await prisma.task.count({
         where: {
           assigneeId: userId,
-          column: { board: { projectId: board.project.id } },
+          column: {
+            board: {
+              projectId: board.project.id,
+            },
+          },
         },
       });
+
       if (hasAssignedTask === 0) {
-        return res.status(403).json({ error: 'Bu panoya erişim yetkiniz yok.' });
+        return res.status(403).json({
+          error: 'Bu panoya erişim yetkiniz yok.',
+        });
       }
     }
 
@@ -50,9 +67,16 @@ router.get('/:id/columns', async (req: AuthRequest, res: Response) => {
       include: {
         tasks: {
           include: {
-            assignee: { select: { id: true, email: true } },
+            assignee: {
+              select: {
+                id: true,
+                email: true,
+              },
+            },
           },
-          orderBy: { order: 'asc' },
+          orderBy: {
+            order: 'asc',
+          },
         },
       },
     });
@@ -66,13 +90,16 @@ router.get('/:id/columns', async (req: AuthRequest, res: Response) => {
         tasks = tasks.filter(
           (t) =>
             t.title.toLowerCase().includes(search) ||
-            (t.description && t.description.toLowerCase().includes(search))
+            (t.description &&
+              t.description.toLowerCase().includes(search))
         );
       }
 
       // Assignee filtresi
       if (assigneeId) {
-        tasks = tasks.filter((t) => t.assigneeId === assigneeId);
+        tasks = tasks.filter(
+          (t) => t.assigneeId === assigneeId
+        );
       }
 
       return {
@@ -87,7 +114,10 @@ router.get('/:id/columns', async (req: AuthRequest, res: Response) => {
     });
   } catch (error) {
     console.error('Pano kolonları yüklenemedi:', error);
-    return res.status(500).json({ error: 'Pano verileri getirilemedi.' });
+
+    return res.status(500).json({
+      error: 'Pano verileri getirilemedi.',
+    });
   }
 });
 
@@ -97,16 +127,23 @@ router.post('/', async (req: AuthRequest, res: Response) => {
   const userId = String(req.userId || '');
 
   if (!name || !projectId) {
-    return res.status(400).json({ error: 'Pano adı ve Proje ID zorunludur.' });
+    return res.status(400).json({
+      error: 'Pano adı ve Proje ID zorunludur.',
+    });
   }
 
   try {
     const project = await prisma.project.findFirst({
-      where: { id: String(projectId), ownerId: userId },
+      where: {
+        id: String(projectId),
+        ownerId: userId,
+      },
     });
 
     if (!project) {
-      return res.status(403).json({ error: 'Yalnızca proje sahibi pano ekleyebilir.' });
+      return res.status(403).json({
+        error: 'Yalnızca proje sahibi pano ekleyebilir.',
+      });
     }
 
     const result = await prisma.$transaction(async (tx) => {
@@ -119,18 +156,40 @@ router.post('/', async (req: AuthRequest, res: Response) => {
 
       await tx.column.createMany({
         data: [
-          { name: 'To Do', order: 0, boardId: board.id },
-          { name: 'In Progress', order: 1, boardId: board.id },
-          { name: 'Done', order: 2, boardId: board.id },
+          {
+            name: 'To Do',
+            order: 0,
+            boardId: board.id,
+          },
+          {
+            name: 'In Progress',
+            order: 1,
+            boardId: board.id,
+          },
+          {
+            name: 'Done',
+            order: 2,
+            boardId: board.id,
+          },
         ],
       });
 
       return board;
     });
 
+    // Yeni pano oluşturulduğunda proje sahibine bildir.
+    io?.to(`user:${userId}`).emit('project:updated', {
+      projectId: project.id,
+      board: result,
+    });
+
     return res.status(201).json(result);
   } catch (error) {
-    return res.status(500).json({ error: 'Pano oluşturulamadı.' });
+    console.error('Pano oluşturulamadı:', error);
+
+    return res.status(500).json({
+      error: 'Pano oluşturulamadı.',
+    });
   }
 });
 
@@ -143,52 +202,136 @@ router.patch('/:id', async (req: AuthRequest, res: Response) => {
   try {
     const board = await prisma.board.findUnique({
       where: { id: boardId },
-      include: { project: true },
+      include: {
+        project: true,
+      },
     });
 
-    if (!board) return res.status(404).json({ error: 'Pano bulunamadı.' });
+    if (!board) {
+      return res.status(404).json({
+        error: 'Pano bulunamadı.',
+      });
+    }
+
     if (board.project.ownerId !== userId) {
-      return res.status(403).json({ error: 'Pano adını yalnızca proje sahibi değiştirebilir.' });
+      return res.status(403).json({
+        error: 'Pano adını yalnızca proje sahibi değiştirebilir.',
+      });
     }
 
     const updated = await prisma.board.update({
       where: { id: boardId },
-      data: { name: String(name).trim() },
+      data: {
+        name: String(name).trim(),
+      },
     });
 
-    io?.to(`board:${boardId}`).emit('board:updated', updated);
+    // =========================================================
+    // 1. Panoyu şu anda açık olan kullanıcılara bildir
+    // =========================================================
+    io?.to(`board:${boardId}`).emit(
+      'board:updated',
+      updated
+    );
+
+    // =========================================================
+    // 2. Proje detay/listesi açık olan proje sahibine bildir
+    // =========================================================
+    io?.to(`user:${board.project.ownerId}`).emit(
+      'project:updated',
+      {
+        projectId: board.project.id,
+        board: updated,
+      }
+    );
+
+    // =========================================================
+    // 3. Projede görevi olan kullanıcılara da bildir
+    // =========================================================
+    const affectedTasks = await prisma.task.findMany({
+      where: {
+        column: {
+          board: {
+            projectId: board.project.id,
+          },
+        },
+      },
+      select: {
+        assigneeId: true,
+      },
+    });
+
+    const affectedUserIds = Array.from(
+      new Set(
+        affectedTasks
+          .map((task) => task.assigneeId)
+          .filter(
+            (id): id is string =>
+              Boolean(id) &&
+              id !== board.project.ownerId
+          )
+      )
+    );
+
+    for (const affectedUserId of affectedUserIds) {
+      io?.to(`user:${affectedUserId}`).emit(
+        'project:updated',
+        {
+          projectId: board.project.id,
+          board: updated,
+        }
+      );
+    }
 
     return res.json(updated);
   } catch (error) {
-    return res.status(500).json({ error: 'Pano güncellenemedi.' });
+    console.error('Pano güncellenemedi:', error);
+
+    return res.status(500).json({
+      error: 'Pano güncellenemedi.',
+    });
   }
 });
 
-// DELETE /api/boards/:id (Panoyu Sil)
+// DELETE /api/boards/:id
 router.delete('/:id', async (req: AuthRequest, res: Response) => {
   const boardId = String(req.params.id);
-  
+
   try {
-    // Panoyu bulup hangi projeye ait olduğunu öğreniyoruz ki projedeki kullanıcılara haber verebilelim
+    // Panoyu bulup hangi projeye ait olduğunu öğreniyoruz.
     const board = await prisma.board.findUnique({
       where: { id: boardId },
-      include: { project: true },
+      include: {
+        project: true,
+      },
     });
 
     if (!board) {
-      return res.status(404).json({ error: 'Pano bulunamadı.' });
+      return res.status(404).json({
+        error: 'Pano bulunamadı.',
+      });
     }
 
-    // Panodaki görevlerden etkilenecek atanmış kullanıcıları, silmeden önce tespit ediyoruz
+    // Panodaki görevlerden etkilenecek kullanıcıları
+    // silmeden önce tespit ediyoruz.
     const affectedTasks = await prisma.task.findMany({
-      where: { column: { boardId } },
-      select: { assigneeId: true },
+      where: {
+        column: {
+          boardId,
+        },
+      },
+      select: {
+        assigneeId: true,
+      },
     });
+
     const affectedAssigneeIds = Array.from(
       new Set(
         affectedTasks
           .map((t) => t.assigneeId)
-          .filter((id): id is string => Boolean(id))
+          .filter(
+            (id): id is string => Boolean(id)
+          )
       )
     );
 
@@ -196,22 +339,46 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
       where: { id: boardId },
     });
 
-    // 1. Pano içinde açık olanları dışarı at
-    io?.to(`board:${boardId}`).emit('board:deleted');
+    // =========================================================
+    // 1. Panoyu açık tutan kullanıcıları bilgilendir
+    // =========================================================
+    io?.to(`board:${boardId}`).emit(
+      'board:deleted'
+    );
 
-    // 2. Projeler listesinin anlık güncellenmesi için projeye bağlı kullanıcılara sinyal yolla
-    io?.to(`user:${board.project.ownerId}`).emit('project:updated', board.project);
+    // =========================================================
+    // 2. Proje sahibinin proje listesini güncelle
+    // =========================================================
+    io?.to(`user:${board.project.ownerId}`).emit(
+      'project:updated',
+      board.project
+    );
 
-    // 3. Bu panoda görevi olan kullanıcılara da projeler listesini yenilemeleri için sinyal yolla,
-    //    ve projede başka görevleri kalmadıysa erişimlerini anlık olarak sonlandır.
+    // =========================================================
+    // 3. Panoda görevi olan kullanıcıları bilgilendir
+    // =========================================================
     for (const assigneeId of affectedAssigneeIds) {
-      io?.to(`user:${assigneeId}`).emit('project:updated');
-      await notifyIfProjectAccessLost(assigneeId, board.project.id);
+      io?.to(`user:${assigneeId}`).emit(
+        'project:updated'
+      );
+
+      // Kullanıcının artık projeye erişimi kalmadıysa
+      // anlık olarak erişimini sonlandır.
+      await notifyIfProjectAccessLost(
+        assigneeId,
+        board.project.id
+      );
     }
 
-    return res.json({ message: 'Pano başarıyla silindi.' });
+    return res.json({
+      message: 'Pano başarıyla silindi.',
+    });
   } catch (error) {
-    return res.status(500).json({ error: 'Pano silinemedi.' });
+    console.error('Pano silinemedi:', error);
+
+    return res.status(500).json({
+      error: 'Pano silinemedi.',
+    });
   }
 });
 

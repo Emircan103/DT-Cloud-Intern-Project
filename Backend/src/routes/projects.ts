@@ -158,31 +158,85 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
 
 // PUT /api/projects/:id -> Frontend PUT attığı için burası PUT olarak düzeltildi
 router.put('/:id', async (req: AuthRequest, res: Response) => {
-  const projectId = String(req.params.id);
-  const { name, description } = req.body;
-  const userId = String(req.userId || '');
+    const projectId = String(req.params.id);
+    const { name, description } = req.body;
+    const userId = String(req.userId || '');
 
-  try {
-    const existingProject = await prisma.project.findFirst({
-      where: { id: projectId, ownerId: userId },
-    });
+    try {
+        const existingProject = await prisma.project.findFirst({
+            where: {
+                id: projectId,
+                ownerId: userId,
+            },
+        });
 
-    if (!existingProject) {
-      return res.status(403).json({ error: 'Projeyi düzenleme yetkiniz yok.' });
+        if (!existingProject) {
+            return res.status(403).json({
+                error: 'Projeyi düzenleme yetkiniz yok.',
+            });
+        }
+
+        const updated = await prisma.project.update({
+            where: {
+                id: projectId,
+            },
+            data: {
+                name:
+                    name !== undefined
+                        ? String(name).trim()
+                        : undefined,
+
+                description:
+                    description !== undefined
+                        ? String(description).trim()
+                        : undefined,
+            },
+        });
+
+        // Proje sahibine anlık güncelleme
+        io?.to(`user:${userId}`).emit('project:updated', updated);
+
+        // Projede görevi bulunan diğer kullanıcıları bul
+        const affectedTasks = await prisma.task.findMany({
+            where: {
+                column: {
+                    board: {
+                        projectId,
+                    },
+                },
+            },
+            select: {
+                assigneeId: true,
+            },
+        });
+
+        const affectedUserIds = Array.from(
+            new Set(
+                affectedTasks
+                    .map((task) => task.assigneeId)
+                    .filter(
+                        (id): id is string =>
+                            Boolean(id) && id !== userId
+                    )
+            )
+        );
+
+        // Projeye erişimi olan diğer kullanıcılara gönder
+        affectedUserIds.forEach((affectedUserId) => {
+            io?.to(`user:${affectedUserId}`).emit(
+                'project:updated',
+                updated
+            );
+        });
+
+        return res.json(updated);
+    } catch (error) {
+        console.error('Proje güncellenemedi:', error);
+
+        return res.status(500).json({
+            error: 'Proje güncellenemedi.',
+        });
     }
-
-    const updated = await prisma.project.update({
-      where: { id: projectId },
-      data: {
-        name: name !== undefined ? String(name).trim() : undefined,
-        description: description !== undefined ? String(description).trim() : undefined,
-      },
-    });
-
-    return res.json(updated);
-  } catch (error) {
-    return res.status(500).json({ error: 'Proje güncellenemedi.' });
-  }
 });
 
 // DELETE /api/projects/:id
