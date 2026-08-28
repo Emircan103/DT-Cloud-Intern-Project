@@ -9,6 +9,7 @@ interface Board {
   id: string;
   name: string;
   createdAt: string;
+  canAccess?: boolean;
   _count?: { columns: number };
 }
 
@@ -283,9 +284,25 @@ export function ProjectDetail() {
                       </div>
                       
                       <div style={{ display: 'flex', gap: '8px', marginTop: 'auto', borderTop: '1px solid #f1f5f9', paddingTop: '12px' }}>
-                        <Link to={`/boards/${board.id}`} style={{ flex: 1, textDecoration: 'none' }}>
-                          <button style={{ width: '100%', padding: '6px 0', background: '#eff6ff', color: '#2563eb', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', fontWeight: 600 }}>Panoya Git</button>
-                        </Link>
+                        {board.canAccess !== false && (
+  <Link to={`/boards/${board.id}`} style={{ flex: 1, textDecoration: 'none' }}>
+    <button
+      style={{
+        width: '100%',
+        padding: '6px 0',
+        background: '#eff6ff',
+        color: '#2563eb',
+        border: 'none',
+        borderRadius: '4px',
+        cursor: 'pointer',
+        fontSize: '12px',
+        fontWeight: 600
+      }}
+    >
+      Panoya Git
+    </button>
+  </Link>
+)}
                         
                         {isOwner && (
                           <>

@@ -102,6 +102,18 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
             _count: {
               select: { columns: true },
             },
+            columns: {
+              select: {
+                tasks: {
+                  where: {
+                    assigneeId: userId,
+                  },
+                  select: {
+                    id: true,
+                  },
+                },
+              },
+            },
           },
           orderBy: { createdAt: 'desc' },
         },
@@ -109,12 +121,38 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
     });
 
     if (!project) {
-      return res.status(404).json({ error: 'Proje bulunamadı veya erişim yetkiniz yok.' });
+      return res.status(404).json({
+        error: 'Proje bulunamadı veya erişim yetkiniz yok.',
+      });
     }
 
-    return res.json(project);
+    const isProjectOwner = project.ownerId === userId;
+
+    const projectWithAccess = {
+      ...project,
+      boards: project.boards.map((board) => ({
+        id: board.id,
+        name: board.name,
+        projectId: board.projectId,
+        createdAt: board.createdAt,
+        _count: board._count,
+
+        // Proje sahibi her panoya erişebilir.
+        // Diğer kullanıcı sadece kendisine atanmış görev bulunan
+        // panolara erişebilir.
+        canAccess:
+          isProjectOwner ||
+          board.columns.some((column) => column.tasks.length > 0),
+      })),
+    };
+
+    return res.json(projectWithAccess);
   } catch (error) {
-    return res.status(500).json({ error: 'Proje detayları getirilemedi.' });
+    console.error('Proje detayları getirilemedi:', error);
+
+    return res.status(500).json({
+      error: 'Proje detayları getirilemedi.',
+    });
   }
 });
 
