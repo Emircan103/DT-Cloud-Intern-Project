@@ -34,6 +34,26 @@ const verifyTaskAccess = async (taskId: string, userId: string) => {
   });
 };
 
+// Bir ActivityLog kaydı oluşturur VE ilgili pano odasına (board room) anlık olarak yayınlar.
+// Böylece görevi görüntüleyen herkesin "Aktivite Geçmişi" sekmesi, sayfa yenilenmeden güncellenir.
+type ActivityAction = 'TASK_CREATED' | 'TASK_UPDATED' | 'TASK_ASSIGNED' | 'TASK_MOVED' | 'COMMENT_ADDED';
+
+const logActivity = async (
+  action: ActivityAction,
+  taskId: string,
+  userId: string,
+  boardId: string
+) => {
+  const log = await prisma.activityLog.create({
+    data: { action, taskId, userId },
+    include: { user: { select: { id: true, email: true } } },
+  });
+
+  getIO()?.to(`board:${boardId}`).emit('activity:created', { log, taskId });
+
+  return log;
+};
+
 // GET /api/tasks/:taskId/comments -> Yorumları listele
 router.get('/:taskId/comments', async (req: AuthRequest, res: Response) => {
   const taskId = String(req.params.taskId);
@@ -85,19 +105,11 @@ router.post('/:taskId/comments', async (req: AuthRequest, res: Response) => {
       },
     });
 
-    const log = await prisma.activityLog.create({
-      data: {
-        action: 'COMMENT_ADDED',
-        taskId,
-        userId,
-      },
-      include: { user: { select: { id: true, email: true } } },
-    });
+    await logActivity('COMMENT_ADDED', taskId, userId, task.column.boardId);
 
     const io = getIO();
     if (io && task.column?.boardId) {
       io.to(`board:${task.column.boardId}`).emit('comment:created', { comment, taskId });
-      io.to(`board:${task.column.boardId}`).emit('activity:created', { log, taskId });
     }
 
     return res.status(201).json(comment);
@@ -184,13 +196,7 @@ const createTaskInColumn = async (req: AuthRequest, res: Response) => {
       },
     });
 
-    await prisma.activityLog.create({
-      data: {
-        action: 'TASK_CREATED',
-        taskId: task.id,
-        userId,
-      },
-    });
+    await logActivity('TASK_CREATED', task.id, userId, column.boardId);
 
     const io = getIO();
     if (io) {
@@ -249,9 +255,7 @@ router.post('/', async (req: AuthRequest, res: Response) => {
       },
     });
 
-    await prisma.activityLog.create({
-      data: { action: 'TASK_CREATED', taskId: task.id, userId },
-    });
+    await logActivity('TASK_CREATED', task.id, userId, task.column.boardId);
 
     const io = getIO();
     if (io) {
@@ -308,13 +312,9 @@ const updateTaskHandler = async (req: AuthRequest, res: Response) => {
     });
 
     if (assigneeId !== undefined && assigneeId !== existingTask.assigneeId && isProjectOwner) {
-      await prisma.activityLog.create({
-        data: { action: 'TASK_ASSIGNED', taskId, userId },
-      });
+      await logActivity('TASK_ASSIGNED', taskId, userId, updatedTask.column.boardId);
     } else {
-      await prisma.activityLog.create({
-        data: { action: 'TASK_UPDATED', taskId, userId },
-      });
+      await logActivity('TASK_UPDATED', taskId, userId, updatedTask.column.boardId);
     }
 
     const io = getIO();
@@ -421,13 +421,12 @@ router.put('/:id/move', async (req: AuthRequest, res: Response) => {
       },
     });
 
-    await prisma.activityLog.create({
-      data: { action: 'TASK_MOVED', taskId, userId },
-    });
-
     const io = getIO();
     if (io && updatedTask) {
       io.to(`board:${updatedTask.column.boardId}`).emit('task:updated', updatedTask);
+      await logActivity('TASK_MOVED', taskId, userId, updatedTask.column.boardId);
+    } else if (updatedTask) {
+      await prisma.activityLog.create({ data: { action: 'TASK_MOVED', taskId, userId } });
     }
 
     return res.json(updatedTask);

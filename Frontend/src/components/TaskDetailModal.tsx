@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { AxiosError } from 'axios';
 import { api } from '../lib/axios';
 import { useAuth } from '../context/useAuth';
+import { socket } from '../lib/socket';
 
 interface UserSummary {
   id: string;
@@ -129,6 +130,31 @@ function TaskDetailModalContent({ task: initialTask, isOwner, projectOwnerEmail,
     };
   }, [currentTask.id]);
 
+  // Canlı güncellemeler: modal açıkken başka bir kullanıcı yorum eklerse veya
+  // görev üzerinde bir aktivite (oluşturma, güncelleme, atama, taşıma) gerçekleşirse,
+  // pano sayfası zaten bu odaya (board room) katılmış olduğundan aynı socket üzerinden
+  // anlık olarak burada da yansıtıyoruz. Kendi eylemimizden gelen olay da bu kanaldan
+  // geleceği için, aynı id'yi iki kez eklememek adına kontrol ediyoruz.
+  useEffect(() => {
+    const handleCommentCreated = (data: { comment: Comment; taskId: string }) => {
+      if (data.taskId !== currentTask.id) return;
+      setComments((prev) => (prev.some((c) => c.id === data.comment.id) ? prev : [...prev, data.comment]));
+    };
+
+    const handleActivityCreated = (data: { log: ActivityLog; taskId: string }) => {
+      if (data.taskId !== currentTask.id) return;
+      setActivities((prev) => (prev.some((a) => a.id === data.log.id) ? prev : [data.log, ...prev]));
+    };
+
+    socket.on('comment:created', handleCommentCreated);
+    socket.on('activity:created', handleActivityCreated);
+
+    return () => {
+      socket.off('comment:created', handleCommentCreated);
+      socket.off('activity:created', handleActivityCreated);
+    };
+  }, [currentTask.id]);
+
   const handleAddComment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newComment.trim() || submitting) return;
@@ -138,11 +164,12 @@ function TaskDetailModalContent({ task: initialTask, isOwner, projectOwnerEmail,
       const res = await api.post(`/tasks/${currentTask.id}/comments`, {
         content: newComment.trim(),
       });
-      setComments((prev) => [...prev, res.data]);
+      // Not: Sunucu bu yorumu ve aktivite kaydını `comment:created`/`activity:created`
+      // olaylarıyla pano odasına da yayınlıyor; yukarıdaki socket dinleyicisi (id kontrolüyle
+      // tekrarı önleyerek) bunu zaten state'e ekleyecek. Yine de bağlantı anlık kopuksa diye
+      // burada da ekliyoruz.
+      setComments((prev) => (prev.some((c) => c.id === res.data.id) ? prev : [...prev, res.data]));
       setNewComment('');
-
-      const actRes = await api.get(`/tasks/${currentTask.id}/activity`);
-      setActivities(actRes.data);
     } catch (err: unknown) {
       console.error('Yorum eklenemedi', err);
     } finally {
@@ -169,9 +196,8 @@ function TaskDetailModalContent({ task: initialTask, isOwner, projectOwnerEmail,
 
       if (onTaskUpdated) onTaskUpdated(updated);
       setIsEditing(false);
-
-      const actRes = await api.get(`/tasks/${currentTask.id}/activity`);
-      setActivities(actRes.data);
+      // Not: aktivite kaydı (TASK_UPDATED/TASK_ASSIGNED) artık sunucudan `activity:created`
+      // olayıyla canlı geliyor, burada ayrıca GET ile çekmeye gerek yok.
     } catch (err: unknown) {
       console.error('Görev güncellenemedi', err);
       let message = 'Görev güncellenirken hata oluştu.';
