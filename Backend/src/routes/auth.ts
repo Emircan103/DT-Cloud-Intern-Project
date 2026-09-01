@@ -3,12 +3,13 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { prisma } from '../lib/prisma';
 import { authenticateToken } from '../middleware/auth';
+import { authLimiterMiddleware } from '../middleware/rateLimiter';
 
 const router = Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'secret';
 
 // POST /api/auth/register
-router.post('/register', async (req, res) => {
+router.post('/register', authLimiterMiddleware, async (req, res) => {
   const { email, password } = req.body;
 
   if (!email || !password) {
@@ -38,7 +39,7 @@ router.post('/register', async (req, res) => {
 });
 
 // POST /api/auth/login
-router.post('/login', async (req, res) => {
+router.post('/login', authLimiterMiddleware, async (req, res) => {
   const { email, password } = req.body;
 
   if (!email || !password) {

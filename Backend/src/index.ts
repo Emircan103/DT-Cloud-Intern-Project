@@ -9,6 +9,7 @@ import projectRoutes from './routes/projects';
 import boardRoutes from './routes/boards';
 import taskRoutes from './routes/tasks';
 import { initStaleTaskJob } from './jobs/staleTasks';
+import { apiLimiterMiddleware } from './middleware/rateLimiter';
 
 dotenv.config();
 
@@ -24,9 +25,9 @@ initSocket(server);
 
 // Rotalar (Routes)
 app.use('/api/auth', authRoutes);
-app.use('/api/projects', projectRoutes);
-app.use('/api/boards', boardRoutes);
-app.use('/api/tasks', taskRoutes);
+app.use('/api/projects', apiLimiterMiddleware, projectRoutes);
+app.use('/api/boards', apiLimiterMiddleware, boardRoutes);
+app.use('/api/tasks', apiLimiterMiddleware, taskRoutes);
 
 const PORT = process.env.PORT || 5000;
 
