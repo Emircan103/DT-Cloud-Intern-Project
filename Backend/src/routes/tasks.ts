@@ -3,6 +3,7 @@ import { prisma } from '../lib/prisma';
 import { authenticateToken, AuthRequest } from '../middleware/auth';
 import { getIO } from '../lib/socket';
 import { notifyIfProjectAccessLost } from '../lib/access';
+import { invalidateBoardCache } from '../middleware/cache';
 
 const router = Router();
 router.use(authenticateToken);
@@ -34,8 +35,7 @@ const verifyTaskAccess = async (taskId: string, userId: string) => {
   });
 };
 
-// Bir ActivityLog kaydı oluşturur VE ilgili pano odasına (board room) anlık olarak yayınlar.
-// Böylece görevi görüntüleyen herkesin "Aktivite Geçmişi" sekmesi, sayfa yenilenmeden güncellenir.
+// Bir ActivityLog kaydı oluşturur VE ilgili pano odasına anlık yayınlar
 type ActivityAction = 'TASK_CREATED' | 'TASK_UPDATED' | 'TASK_ASSIGNED' | 'TASK_MOVED' | 'COMMENT_ADDED';
 
 const logActivity = async (
@@ -112,6 +112,9 @@ router.post('/:taskId/comments', async (req: AuthRequest, res: Response) => {
       io.to(`board:${task.column.boardId}`).emit('comment:created', { comment, taskId });
     }
 
+    // Yorum eklendiğinde panonun önbelleğini temizle
+    await invalidateBoardCache(task.column.boardId);
+
     return res.status(201).json(comment);
   } catch (error) {
     return res.status(500).json({ error: 'Yorum eklenemedi.' });
@@ -142,7 +145,7 @@ router.get('/:taskId/activity', async (req: AuthRequest, res: Response) => {
   }
 });
 
-// Kolona Görev Ekleme Fonksiyonu (Proje Sahibi Doğrulamalı)
+// Kolona Görev Ekleme Fonksiyonu
 const createTaskInColumn = async (req: AuthRequest, res: Response) => {
   const columnId = String(req.params.columnId);
   const { title, description, assigneeId } = req.body;
@@ -207,6 +210,9 @@ const createTaskInColumn = async (req: AuthRequest, res: Response) => {
       }
     }
 
+    // Görev oluşturulduğunda önbelleği temizle
+    await invalidateBoardCache(column.boardId);
+
     return res.status(201).json(task);
   } catch (error) {
     console.error('Görev ekleme hatası:', error);
@@ -266,6 +272,9 @@ router.post('/', async (req: AuthRequest, res: Response) => {
       }
     }
 
+    // Görev oluşturulduğunda önbelleği temizle
+    await invalidateBoardCache(task.column.boardId);
+
     return res.status(201).json(task);
   } catch (error) {
     return res.status(500).json({ error: 'Görev eklenemedi.' });
@@ -321,7 +330,6 @@ const updateTaskHandler = async (req: AuthRequest, res: Response) => {
     if (io) {
       io.to(`board:${updatedTask.column.boardId}`).emit('task:updated', updatedTask);
 
-      // Atanan kişi değiştiyse hem yeni hem eski kullanıcıya projeler listesini güncellemesi için sinyal atıyoruz
       if (newAssigneeId) {
         io.to(`user:${newAssigneeId}`).emit('project:updated');
       }
@@ -330,11 +338,12 @@ const updateTaskHandler = async (req: AuthRequest, res: Response) => {
       }
     }
 
-    // Görev başka birine devredildiyse, eski atanan kişinin bu projede
-    // başka görevi kalmadıysa anlık olarak erişimini sonlandır.
     if (oldAssigneeId && oldAssigneeId !== newAssigneeId) {
       await notifyIfProjectAccessLost(oldAssigneeId, existingTask.column.board.project.id);
     }
+
+    // Görev güncellendiğinde önbelleği temizle
+    await invalidateBoardCache(updatedTask.column.boardId);
 
     return res.json(updatedTask);
   } catch (error) {
@@ -429,6 +438,11 @@ router.put('/:id/move', async (req: AuthRequest, res: Response) => {
       await prisma.activityLog.create({ data: { action: 'TASK_MOVED', taskId, userId } });
     }
 
+    // Görev taşındığında önbelleği temizle
+    if (updatedTask) {
+      await invalidateBoardCache(updatedTask.column.boardId);
+    }
+
     return res.json(updatedTask);
   } catch (error) {
     console.error('Taşıma hatası:', error);
@@ -471,26 +485,26 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
 
     const assigneeId = task.assigneeId;
     const projectId = task.column.board.project.id;
+    const boardId = task.column.boardId;
 
     // Görevi siliyoruz
     await prisma.task.delete({ where: { id: taskId } });
 
     const io = getIO();
     if (io) {
-      // Pano odasındaki herkese görevin silindiğini bildiriyoruz
-      io.to(`board:${task.column.boardId}`).emit('task:deleted', { taskId, columnId: task.columnId });
+      io.to(`board:${boardId}`).emit('task:deleted', { taskId, columnId: task.columnId });
 
-      // Görev silindiğinde, eğer birine atanmışsa o kişinin projeler listesini anlık güncelle
       if (assigneeId) {
         io.to(`user:${assigneeId}`).emit('project:updated');
       }
     }
 
-    // Görev silindikten sonra, atanan kişinin bu projede başka görevi kalmadıysa
-    // (ve proje sahibi değilse) anlık olarak erişimini sonlandır.
     if (assigneeId) {
       await notifyIfProjectAccessLost(assigneeId, projectId);
     }
+
+    // Görev silindiğinde önbelleği temizle
+    await invalidateBoardCache(boardId);
 
     return res.json({ message: 'Görev silindi.' });
   } catch (error) {

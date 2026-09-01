@@ -3,6 +3,8 @@ import { prisma } from '../lib/prisma';
 import { authenticateToken, AuthRequest } from '../middleware/auth';
 import { io } from '../lib/socket';
 import { notifyIfProjectAccessLost } from '../lib/access';
+import { invalidateBoardCache } from '../middleware/cache';
+import redis from '../lib/redis';
 
 const router = Router();
 router.use(authenticateToken);
@@ -61,6 +63,23 @@ router.get('/:id/columns', async (req: AuthRequest, res: Response) => {
       }
     }
 
+    // --- REDIS CACHE KONTROLÜ (Sadece genel listelemede, filtresizken önbelleklenir) ---
+    const isFiltered = Boolean(search || assigneeId);
+    const cacheKey = `board:${boardId}`;
+
+    if (!isFiltered) {
+      try {
+        const cached = await redis.get(cacheKey);
+        if (cached) {
+          console.log(`⚡ [CACHE HIT] Board ${boardId} Redis'ten getirildi.`);
+          return res.json(JSON.parse(cached));
+        }
+        console.log(`🐢 [CACHE MISS] Board ${boardId} Prisma'dan getiriliyor.`);
+      } catch (cacheErr) {
+        console.error('Redis okuma hatası:', cacheErr);
+      }
+    }
+
     let columns = await prisma.column.findMany({
       where: { boardId },
       orderBy: { order: 'asc' },
@@ -81,11 +100,10 @@ router.get('/:id/columns', async (req: AuthRequest, res: Response) => {
       },
     });
 
-    // Görev filtreleme ve yetki filtrelemesi
+    // Görev filtreleme
     columns = columns.map((column) => {
       let tasks = column.tasks;
 
-      // Arama filtresi
       if (search) {
         tasks = tasks.filter(
           (t) =>
@@ -95,7 +113,6 @@ router.get('/:id/columns', async (req: AuthRequest, res: Response) => {
         );
       }
 
-      // Assignee filtresi
       if (assigneeId) {
         tasks = tasks.filter(
           (t) => t.assigneeId === assigneeId
@@ -108,10 +125,21 @@ router.get('/:id/columns', async (req: AuthRequest, res: Response) => {
       };
     });
 
-    return res.json({
+    const responsePayload = {
       board,
       columns,
-    });
+    };
+
+    // Filtresiz genel istek ise Redis'e yaz (1 saat TTL)
+    if (!isFiltered) {
+      try {
+        await redis.setex(cacheKey, 3600, JSON.stringify(responsePayload));
+      } catch (cacheErr) {
+        console.error('Redis yazma hatası:', cacheErr);
+      }
+    }
+
+    return res.json(responsePayload);
   } catch (error) {
     console.error('Pano kolonları yüklenemedi:', error);
 
@@ -177,7 +205,6 @@ router.post('/', async (req: AuthRequest, res: Response) => {
       return board;
     });
 
-    // Yeni pano oluşturulduğunda proje sahibine bildir.
     io?.to(`user:${userId}`).emit('project:updated', {
       projectId: project.id,
       board: result,
@@ -226,13 +253,14 @@ router.patch('/:id', async (req: AuthRequest, res: Response) => {
       },
     });
 
-    // 1. Panoyu şu anda açık olan kullanıcılara bildir
+    // Pano güncellendiği için cache temizlenir
+    await invalidateBoardCache(boardId);
+
     io?.to(`board:${boardId}`).emit(
       'board:updated',
       updated
     );
 
-    // 2. Proje detay/listesi açık olan proje sahibine bildir
     io?.to(`user:${board.project.ownerId}`).emit(
       'project:updated',
       {
@@ -241,7 +269,6 @@ router.patch('/:id', async (req: AuthRequest, res: Response) => {
       }
     );
 
-    // 3. Projede görevi olan kullanıcılara da bildir
     const affectedTasks = await prisma.task.findMany({
       where: {
         column: {
@@ -292,7 +319,6 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
   const boardId = String(req.params.id);
 
   try {
-    // Panoyu bulup hangi projeye ait olduğunu öğreniyoruz.
     const board = await prisma.board.findUnique({
       where: { id: boardId },
       include: {
@@ -306,8 +332,6 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
       });
     }
 
-    // Panodaki görevlerden etkilenecek kullanıcıları
-    // silmeden önce tespit ediyoruz.
     const affectedTasks = await prisma.task.findMany({
       where: {
         column: {
@@ -333,25 +357,23 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
       where: { id: boardId },
     });
 
-    // 1. Panoyu açık tutan kullanıcıları bilgilendir
+    // Pano silindiği için cache temizlenir
+    await invalidateBoardCache(boardId);
+
     io?.to(`board:${boardId}`).emit(
       'board:deleted'
     );
 
-    // 2. Proje sahibinin proje listesini güncelle
     io?.to(`user:${board.project.ownerId}`).emit(
       'project:updated',
       board.project
     );
 
-    // 3. Panoda görevi olan kullanıcıları bilgilendir
     for (const assigneeId of affectedAssigneeIds) {
       io?.to(`user:${assigneeId}`).emit(
         'project:updated'
       );
 
-      // Kullanıcının artık projeye erişimi kalmadıysa
-      // anlık olarak erişimini sonlandır.
       await notifyIfProjectAccessLost(
         assigneeId,
         board.project.id
