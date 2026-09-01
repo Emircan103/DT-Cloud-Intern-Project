@@ -54,6 +54,33 @@ const logActivity = async (
   return log;
 };
 
+// GET /api/tasks/stale/list -> Bayatlamış görevleri listele
+router.get('/stale/list', async (req: AuthRequest, res: Response) => {
+  try {
+    const staleTasks = await prisma.task.findMany({
+      where: { isStale: true },
+      include: {
+        column: {
+          include: {
+            board: {
+              select: { id: true, name: true },
+            },
+          },
+        },
+        assignee: {
+          select: { id: true, email: true },
+        },
+      },
+      orderBy: { updatedAt: 'desc' },
+    });
+
+    return res.json(staleTasks);
+  } catch (error) {
+    console.error('Stale görevler listelenemedi:', error);
+    return res.status(500).json({ error: 'Stale görevler listelenemedi.' });
+  }
+});
+
 // GET /api/tasks/:taskId/comments -> Yorumları listele
 router.get('/:taskId/comments', async (req: AuthRequest, res: Response) => {
   const taskId = String(req.params.taskId);

@@ -8,6 +8,7 @@ import authRoutes from './routes/auth';
 import projectRoutes from './routes/projects';
 import boardRoutes from './routes/boards';
 import taskRoutes from './routes/tasks';
+import { initStaleTaskJob } from './jobs/staleTasks';
 
 dotenv.config();
 
@@ -32,3 +33,5 @@ const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
 });
+
+initStaleTaskJob();
