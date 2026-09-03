@@ -3,7 +3,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { prisma } from '../lib/prisma';
 import { authenticateToken } from '../middleware/auth';
-import { authLimiterMiddleware } from '../middleware/rateLimiter';
+import { authLimiterMiddleware, authRateLimiter } from '../middleware/rateLimiter';
 
 const router = Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'secret';
@@ -56,6 +56,8 @@ router.post('/login', authLimiterMiddleware, async (req, res) => {
     if (!validPassword) {
       return res.status(401).json({ error: 'Geçersiz email veya şifre.' });
     }
+
+    await authRateLimiter.delete(req.ip || req.socket.remoteAddress || '127.0.0.1');
 
     // Token içerisine email ekliyoruz
     const token = jwt.sign({ userId: user.id, email: user.email }, JWT_SECRET, { expiresIn: '7d' });

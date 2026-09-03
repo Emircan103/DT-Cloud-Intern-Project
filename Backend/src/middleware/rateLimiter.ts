@@ -3,29 +3,16 @@ import { RateLimiterRedis } from 'rate-limiter-flexible';
 import redis from '../lib/redis';
 import { AuthRequest } from './auth';
 
-/**
- * NEDEN İKİ FARKLI RATE LIMIT STRATEJİSİ UYGULANIR?
- * 
- * 1. Auth Endpoint'leri (Login/Register) - IP Bazlı & Katı Limit:
- *    Henüz kullanıcının kimliği (JWT) doğrulanmadığı için IP adresi üzerinden takip edilir.
- *    Kaba kuvvet (brute-force) ve credential stuffing saldırılarını önlemek için çok dar bir limit uygulanır.
- * 
- * 2. Genel API Endpoint'leri - User ID Bazlı & Esnek Limit:
- *    Giriş yapmış kullanıcıların aynı IP'yi (örneğin ofis/okul NAT arkasında) paylaşması durumunda
- *    birbirlerini bloklamamaları için JWT içindeki userId baz alınır. Normal uygulama kullanım trafiğine
- *    izin verecek esneklikte tutulur.
- */
-
-// 1. Auth için katı limiter: IP başına 15 dakikada (900 sn) en fazla 5 deneme
+// 1. Auth için katı limiter: IP başına 60 saniyede en fazla 5 deneme, aşılırsa 60 saniye engelle
 export const authRateLimiter = new RateLimiterRedis({
   storeClient: redis,
   keyPrefix: 'rl_auth',
-  points: 5, // İzin verilen maksimum istek sayısı
-  duration: 900, // Zaman penceresi (saniye)
-  blockDuration: 900, // Limit aşılırsa 15 dakika boyunca engelle
+  points: 5,
+  duration: 60,
+  blockDuration: 60,
 });
 
-// 2. Genel API için esnek limiter: Kullanıcı (userId) başına dakikada (60 sn) en fazla 100 istek
+// 2. Genel API için esnek limiter: Kullanıcı başına dakikada 100 istek
 export const apiRateLimiter = new RateLimiterRedis({
   storeClient: redis,
   keyPrefix: 'rl_api',
@@ -35,18 +22,25 @@ export const apiRateLimiter = new RateLimiterRedis({
 
 // Auth rotaları (Login/Register) için middleware
 export const authLimiterMiddleware = async (req: Request, res: Response, next: NextFunction) => {
+  const clientIp = req.ip || req.socket.remoteAddress || '127.0.0.1';
   try {
-    const clientIp = req.ip || req.socket.remoteAddress || '127.0.0.1';
-    await authRateLimiter.consume(clientIp);
+    const rateLimiterRes = await authRateLimiter.consume(clientIp);
+    
+    res.setHeader('X-RateLimit-Remaining', rateLimiterRes.remainingPoints);
+    res.setHeader('X-RateLimit-Reset', Math.round(rateLimiterRes.msBeforeNext / 1000));
+    
     next();
-  } catch (rateLimiterRes) {
+  } catch (rateLimiterRes: any) {
+    const retrySecs = Math.max(1, Math.round((rateLimiterRes.msBeforeNext || 60000) / 1000));
+
     return res.status(429).json({
-      error: 'Çok fazla giriş denemesi yaptınız. Lütfen 15 dakika sonra tekrar deneyin.',
+      error: `Çok fazla hatalı giriş denemesi yaptınız. Hesabınız geçici olarak kilitlendi. Lütfen ${retrySecs} saniye sonra tekrar deneyin.`,
+      retryAfterSeconds: retrySecs,
     });
   }
 };
 
-// Genel rotalar için middleware (JWT'den gelen userId kullanılır)
+// Genel rotalar için middleware
 export const apiLimiterMiddleware = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const key = req.userId || req.ip || 'general';
